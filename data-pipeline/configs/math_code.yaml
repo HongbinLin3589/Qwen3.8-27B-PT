@@ -1,0 +1,41 @@
+# configs/sources/math_code.yaml 下载的数据（POLARIS 数学 + DeepCoder 代码题）用这个配置跑。
+# 需要模型采样的步骤（审查、泄漏检查、难度、教师轨迹）先关掉；接上模型后再打开。
+run_name: math-code
+workers: 16
+
+dedup:
+  # LeetCode 题面共用的开头/结尾说明会让不同题目看起来相似，比较前先去掉
+  ignore_patterns: &boilerplate
+    - 'Please solve the programming task below using a self-contained code snippet in a markdown code block\.'
+    - 'Please complete the following python code precisely:'
+    - 'Time Limit: [^\n]*'
+    - 'Memory Limit: [^\n]*'
+  minhash: {enabled: true, threshold: 0.7}
+  embedding: {enabled: false}       # hashing 向量在 6.7 万题上两两比较意义不大；有真实向量模型再开
+
+decontam_split:
+  ignore_patterns: *boilerplate
+  # 只按单词切 13-gram（不算标点和 LaTeX 符号）；出现在 3 道以上评测题或 50 道以上
+  # 训练题里的 13-gram 是题面套话，忽略；两题共有的 13-gram 占较短一题的 20% 以上才算污染。
+  # 这几个数是在本批数据上抽样看过之后定的，见 4.1数据实跑结果.md
+  ngram: {n: 13, min_shared: 1, word_tokens: true, max_eval_df: 3, max_train_df: 50, min_overlap: 0.2}
+  embedding: {enabled: true, threshold: 0.9}
+  time_split: {enabled: false}      # 这两份数据没有题目日期
+  repo_split: {enabled: false}
+
+env_check:
+  check_function_tasks: true        # 有参考解（LeetCode）的题：参考解跑两次都要过，空解要不过
+
+verifier_review: {enabled: false}
+leak_check: {enabled: false}
+difficulty: {enabled: false}
+trajectory: {enabled: false}
+
+export:
+  sft:
+    sources: [reference]            # 只有 LeetCode 带参考解，会变成代码 SFT 样本
+  rl:
+    prompt_suffix:
+      answer_match: " Let's think step by step and output the final answer within \\boxed{}."
+      stdio: "\n\nWrite a Python 3 program that reads from standard input and writes to standard output. Put the complete program in one ```python code block."
+      python_function: "\n\nWrite the Python 3 function described above and name it `{function}`. Put the code in one ```python code block."

@@ -1,0 +1,9 @@
+pyyaml
+numpy
+pyarrow            # verl Parquet export, reading .parquet sources
+jsonschema>=4.18   # validate declared function tools and their arguments
+# optional:
+# datasets / huggingface_hub   Hugging Face download (falls back to the HTTP rows API without them)
+# sentence-transformers        real embedding model for dedup / decontamination
+# sortedcontainers            LeetCode reference solutions import it (code verification)
+# docker CLI                   DockerSandbox for SWE / terminal tasks

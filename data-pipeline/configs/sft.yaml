@@ -1,0 +1,12 @@
+# Prepared SFT JSON / JSONL / Parquet. Relative media paths use media_root,
+# or the current directory if unset. Supply real images before running.
+export:
+  rl: {enabled: false}
+  sft:
+    sources: []
+    on_invalid: error
+    enable_thinking: keep
+    media: bytes
+    check_media_exists: true
+    empty_media_columns: true
+    split_by_modality: true

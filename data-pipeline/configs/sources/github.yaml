@@ -1,0 +1,31 @@
+# 同一批公开数据，从 GitHub 原始文件下载（不经过 HF）。开发环境里实际跑通过。
+sources:
+  - name: gsm8k
+    role: train
+    license: MIT
+    loader: {type: url, url: "https://raw.githubusercontent.com/openai/grade-school-math/master/grade_school_math/data/train.jsonl"}
+    mapper: {type: fields, id: "{index}", prompt: question, answer: answer, answer_after: "####",
+             reference_text: answer, domain: math}
+
+  - name: mbpp
+    role: train
+    license: CC-BY-4.0
+    # 全部 974 题（含官方测试集的原题），用来检验去污染能找出多少
+    loader: {type: url, url: "https://raw.githubusercontent.com/google-research/google-research/master/mbpp/mbpp.jsonl"}
+    mapper: {type: mbpp}
+
+  - name: gsm8k-test
+    role: eval
+    loader: {type: url, url: "https://raw.githubusercontent.com/openai/grade-school-math/master/grade_school_math/data/test.jsonl"}
+    mapper: {type: fields, prompt: question, answer: answer, answer_after: "####"}
+
+  - name: humaneval
+    role: eval
+    loader: {type: url, url: "https://raw.githubusercontent.com/openai/human-eval/master/data/HumanEval.jsonl.gz"}
+    mapper: {type: humaneval}
+
+  - name: mbpp-sanitized
+    role: eval
+    loader: {type: url, url: "https://raw.githubusercontent.com/google-research/google-research/master/mbpp/sanitized-mbpp.json"}
+    where: [{field: task_id, min: 11, max: 510}]   # MBPP 官方测试集的编号范围
+    mapper: {type: mbpp}

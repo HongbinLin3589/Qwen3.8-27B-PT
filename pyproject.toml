@@ -14,10 +14,20 @@ dependencies = [
     "pyarrow==23.0.1",
     "uvicorn>=0.30,<1",
     "fastapi>=0.115,<1",
+    "pyyaml>=6,<7",
+    "jsonschema>=4.18,<5",
 ]
 
+[project.optional-dependencies]
+hf = ["datasets", "huggingface_hub"]
+embed = ["sentence-transformers"]
+code = ["sortedcontainers"]
+
+[project.scripts]
+datapipe = "qwenpt.data.cli:main"
+
 [dependency-groups]
-test = ["pytest>=9,<10"]
+test = ["pytest>=9,<10", "sortedcontainers"]
 
 [tool.uv.sources]
 torch = { index = "pytorch-cu129" }

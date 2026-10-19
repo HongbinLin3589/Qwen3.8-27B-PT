@@ -1,0 +1,97 @@
+# 4.1 表中两项，从 GitHub 仓库里直接取（不经过 HF）：
+#   数学 POLARIS-53K（表中「数学」第二行）
+#   代码 DeepCoder 仓库 deepcoder 分支里的训练题（LeetCode / Codeforces / APPS / CodeContests）
+#        注意：这不是 HF 上的 DeepCoder-Preview-Dataset（TACO + PrimeIntellect + LCB），
+#        而是 rllm 仓库 deepcoder 分支里提交的那份代码训练数据。
+# 评测集同样取自这两个仓库，用来去污染。
+# 用法：python -m qwenpt.data download --sources configs/data/sources/math_code.yaml --out data/math_code
+x-boxed-suffix: &boxed_suffix '\s*Let''s think step by step and output the final answer within \\boxed\{\}\.?'
+# Codeforces 题面末尾的算法标签（如 ['greedy', 'dp']）等于提示解法，从训练题面里去掉
+x-tags: &cf_tags '\n*Tags:\n\[[^\]]*\]'
+# CodeContests / Codeforces 题面里原有的配图已被数据集去掉，只剩字面的 "<image>"。
+# verl 会把 "<image>" 当成图片占位符，所以换成普通文字。
+x-no-image: &no_image {"<image>": "[image not available]"}
+
+sources:
+  # ---------------------------------------------------------------- train
+  - name: polaris-53k
+    role: train
+    license: Apache-2.0   # 仓库 LICENSE 文件（已核对）；题目本身来自其他数据集，使用前核对上游许可
+    loader: {type: git, repo: ChenxinAn-fdu/POLARIS, path: parquet/stage1/polaris-data-53K.parquet}
+    # 证明题的 ground_truth 多半是凑出来的（"1"、"(,b,)"、"\\trianglePQR"），答案匹配判不了，先排除。
+    # 这条规则也会去掉少量「求值并证明」的可判题。
+    where: [{field: prompt.0.content, not_regex: '(?i)\b(prove|show that)\b'}]
+    mapper:
+      type: fields
+      prompt: prompt.0.content
+      prompt_strip: *boxed_suffix
+      answer: reward_model.ground_truth
+      domain: math
+      meta: {polaris_difficulty: difficulty}   # POLARIS 自带的通过率，如 "7/8"
+
+  - name: deepcoder-leetcode
+    role: train
+    license: MIT          # rllm 仓库 deepcoder 分支的 LICENSE 文件（已核对）
+    loader: {type: git, repo: agentica-project/rllm, ref: deepcoder, path: rllm/data/train/code/leetcode.json}
+    mapper: {type: rllm_code, prompt_replace: *no_image}
+
+  - name: deepcoder-codeforces
+    role: train
+    license: MIT          # rllm 仓库 deepcoder 分支的 LICENSE 文件（已核对）
+    loader: {type: git, repo: agentica-project/rllm, ref: deepcoder, path: rllm/data/train/code/codeforces.json}
+    mapper: {type: rllm_code, prompt_strip: *cf_tags, prompt_replace: *no_image}
+
+  - name: deepcoder-apps
+    role: train
+    license: MIT          # rllm 仓库 deepcoder 分支的 LICENSE 文件（已核对）
+    loader: {type: git, repo: agentica-project/rllm, ref: deepcoder, path: rllm/data/train/code/apps.json}
+    mapper: {type: rllm_code, prompt_replace: *no_image}
+
+  - name: deepcoder-code-contests
+    role: train
+    license: MIT          # rllm 仓库 deepcoder 分支的 LICENSE 文件（已核对）
+    loader: {type: git, repo: agentica-project/rllm, ref: deepcoder, path: rllm/data/train/code/code_contests.json}
+    mapper: {type: rllm_code, prompt_replace: *no_image}
+
+  # ---------------------------------------------------------------- eval (decontamination targets)
+  - name: aime24
+    role: eval
+    loader: {type: git, repo: ChenxinAn-fdu/POLARIS, path: evaluation/benchmarks/aime24.parquet}
+    mapper: &verl_eval {type: fields, prompt: prompt.0.content, prompt_strip: *boxed_suffix,
+                        answer: reward_model.ground_truth}
+  - name: aime25
+    role: eval
+    loader: {type: git, repo: ChenxinAn-fdu/POLARIS, path: evaluation/benchmarks/aime25.parquet}
+    mapper: *verl_eval
+  - name: amc23
+    role: eval
+    loader: {type: git, repo: ChenxinAn-fdu/POLARIS, path: evaluation/benchmarks/amc23.parquet}
+    mapper: *verl_eval
+  - name: minerva
+    role: eval
+    loader: {type: git, repo: ChenxinAn-fdu/POLARIS, path: evaluation/benchmarks/minerva.parquet}
+    mapper: *verl_eval
+  - name: olympiadbench
+    role: eval
+    loader: {type: git, repo: ChenxinAn-fdu/POLARIS, path: evaluation/benchmarks/olympiad.parquet}
+    mapper: *verl_eval
+  - name: math500
+    role: eval
+    loader: {type: git, repo: agentica-project/rllm, ref: deepcoder, path: rllm/data/test/math/math.json}
+    mapper: {type: fields, prompt: problem, answer: answer}
+  - name: humanevalplus
+    role: eval
+    loader: {type: git, repo: agentica-project/rllm, ref: deepcoder, path: rllm/data/test/code/humanevalplus.json}
+    mapper: {type: rllm_code, prompt_replace: *no_image}
+  - name: leetcode-test
+    role: eval
+    loader: {type: git, repo: agentica-project/rllm, ref: deepcoder, path: rllm/data/test/code/leetcode.json}
+    mapper: {type: rllm_code, prompt_replace: *no_image}
+  - name: codeforces-test
+    role: eval
+    loader: {type: git, repo: agentica-project/rllm, ref: deepcoder, path: rllm/data/test/code/codeforces.json}
+    mapper: {type: rllm_code, prompt_strip: *cf_tags, prompt_replace: *no_image}
+  - name: code-contests-test
+    role: eval
+    loader: {type: git, repo: agentica-project/rllm, ref: deepcoder, path: rllm/data/test/code/code_contests.json}
+    mapper: {type: rllm_code, prompt_replace: *no_image}

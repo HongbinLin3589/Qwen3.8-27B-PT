@@ -1,1 +1,1 @@
-"""Data module: source download, format unification, filtering, and the shared data schema."""
+"""Data download, normalization, filtering, verification and SFT/RL export."""

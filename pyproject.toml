@@ -3,8 +3,30 @@ name = "qwen3-8-27b-pt"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12"
-dependencies = []
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "verl==0.9.1",
+    "torch==2.11.0+cu129",
+    "torchvision==0.26.0+cu129",
+    "transformers==5.9.0",
+    "numpy>=2,<3",
+    "pillow>=11,<13",
+    "pyarrow==23.0.1",
+    "uvicorn>=0.30,<1",
+    "fastapi>=0.115,<1",
+]
+
+[dependency-groups]
+test = ["pytest>=9,<10"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu129" }
+torchvision = { index = "pytorch-cu129" }
+
+[[tool.uv.index]]
+name = "pytorch-cu129"
+url = "https://download.pytorch.org/whl/cu129"
+explicit = true
 
 [build-system]
 requires = ["uv_build>=0.11.33,<0.12"]

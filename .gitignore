@@ -41,6 +41,10 @@ coverage.xml
 .python-version
 uv.lock
 
+# tests
+tests/train/**
+tests/data/**
+
 # (Junbin)
 docs/
 AGENTS.md

@@ -1,0 +1,142 @@
+# Default configuration. Every number from the data chapter (4.2) lives here,
+# not in code. Override with your own YAML (deep-merged) or `--set a.b=c`.
+
+run_name: default
+workers: 4               # threads per stage (sampling / container runs)
+
+# Order of stages. A name is a built-in stage; "pkg.module:Class" plugs in your
+# own Stage subclass, configured by a section with the same key.
+order: [dedup, decontam_split, env_check, verifier_review, leak_check, difficulty, trajectory]
+
+# ---------------------------------------------------------------- backends
+# {type: <registered name | pkg.module:Class>, ...constructor kwargs}
+backends:
+  sandbox:        {type: local_dir}               # production: {type: docker, network: false}
+  embedder:       {type: hashing, dim: 1024}      # production: sentence_transformers / openai_embeddings
+  student:        {type: mock_policy, model: mock-Qwen3.8-27B}
+  teacher:        {type: mock_policy, model: mock-teacher, skill_boost: 0.5, harness: mock_harness}
+  student_scorer: {type: mock_scorer, model: mock-Qwen3.8-27B}  # student log-probs on teacher tokens
+  teacher_scorer: {type: mock_scorer, model: mock-teacher}      # teacher log-probs on student tokens
+  review_agent:   {type: mock_review}
+  shortcut_agent: {type: grep_shortcut}
+
+# ---------------------------------------------------------------- step 2
+dedup:
+  enabled: true
+  prefer_sources: []      # earlier source wins inside a duplicate cluster
+  ignore_patterns: []     # regexes removed before comparing (shared prompt boilerplate)
+  answer_guard: true      # function tasks: never merge two tasks whose tests give different outputs on the same input
+  minhash: {enabled: true, num_perm: 128, bands: 32, ngram: 5, threshold: 0.7}
+  embedding: {enabled: true, threshold: 0.92}
+
+decontam_split:
+  enabled: true
+  eval_sets: []           # jsonl files; text from prompt/problem/question/statement; optional `repo`
+  ignore_patterns: []     # regexes removed from both sides before matching
+  # word_tokens: n-grams over words only; max_eval_df / max_train_df: ignore n-grams
+  # found in more eval items / train tasks than this (boilerplate); min_overlap:
+  # shared n-grams / n-grams of the shorter text. null / 0 = off.
+  ngram: {n: 13, min_shared: 1, word_tokens: false, max_eval_df: null, max_train_df: null, min_overlap: 0.0}
+  embedding: {enabled: true, threshold: 0.9}
+  time_split:
+    enabled: true
+    cutoff: "2026-08-01"  # train: created_at before this; on/after -> eval_holdout.jsonl
+    missing_date: keep    # keep | drop | holdout
+  repo_split:
+    enabled: true
+    domains: [swe]
+    eval_repos: []        # plus every `repo` field found in eval_sets
+    holdout_fraction: 0.0 # also hold out this fraction of repos (hash-based) for internal eval
+
+# ---------------------------------------------------------------- step 3
+env_check:
+  enabled: true
+  domains: [swe, terminal]
+  n_initial: 2            # fresh containers that must FAIL on the initial state
+  n_reference: 4          # fresh containers that must PASS with the reference
+  check_function_tasks: true
+
+# ---------------------------------------------------------------- step 4
+verifier_review:
+  enabled: true
+  policy: student         # which backend samples the solutions to review
+  n_solutions: 8
+  sampling: {temperature: 1.0, top_p: 1.0, max_tokens: 32768}
+  min_judge_confidence: 0.7
+  max_false_positive: 1   # drop the task at this many FPs (0 = never drop)
+  max_false_negative: 1
+  audit_per_source: 150   # human audit sample per source (100-200)
+  seed: 0
+  lint: {enabled: true, action: flag}   # flag | drop
+
+# ---------------------------------------------------------------- step 5
+leak_check:
+  enabled: true
+  domains: [swe, terminal]
+  shortcut_attempts: 1
+  # cleanup_cmds: [...]   # override the default artifact/cache cleanup list
+
+# ---------------------------------------------------------------- step 6
+difficulty:
+  enabled: false          # plugin: off by default
+  initial_samples: 4
+  mid_total: 8            # 1/4-3/4: top up to this many samples
+  zero_escalation: [16, 32]
+  anchor_fraction: 0.125  # share of 4/4 tasks kept as anchors (10-15%)
+  all_correct_action: compose_pool   # compose_pool | drop
+  unsolved_action: teacher_demo      # teacher_demo | drop
+  sampling: {temperature: 1.0, top_p: 1.0, max_tokens: 32768}
+  store_rollouts: true    # rollouts.jsonl = round-1 RFT / APEX / offline RL data
+  rollout_uses: [rft, apex, offline_rl, opd]
+  seed: 0
+
+# ---------------------------------------------------------------- step 8
+trajectory:
+  enabled: true
+  n_per_task: 4
+  keep_per_task: 1
+  min_tokens: 16
+  max_tokens: 65536
+  tiers: null             # null = all tasks; e.g. [main, hard] when difficulty is on
+  sampling: {temperature: 0.7, top_p: 0.95, max_tokens: 65536}
+  uses: [sft, offline_rl, opd]
+  drop_tasks_without_trajectory: false
+
+# ---------------------------------------------------------------- export (verl Parquet)
+export:
+  format: verl                # registered exporter (datapipe/export/__init__.py)
+  system_prompts: {}          # domain -> system message, e.g. {math: "你是数学助手。"}; none = no system message
+  data_source_map: {}         # task source -> data_source written to RL rows
+  json_columns: []            # store these columns as JSON strings (verl will NOT parse them; for your own loader)
+  check_roundtrip: true       # read every file back the way verl does; result in export_report.json
+
+  sft:                        # verl MultiTurnSFTDataset
+    enabled: true
+    sources: [trajectories]   # trajectories (step 9 output) and/or reference (tasks' own worked solutions)
+    extra_files: []           # .json / .jsonl / .parquet of already prepared SFT rows
+    reference_strip: null     # regex removed from reference text, e.g. "<<[^>]*>>" for GSM8K
+    keys:                     # column names; must match verl data.messages_key / image_key / ...
+      messages: messages
+      tools: tools
+      images: images
+      videos: videos
+      enable_thinking: enable_thinking
+    enable_thinking: keep     # keep (per-sample value, if any) | omit | true | false (same for every row)
+    media: path               # path: {"image": "<as stored>"} | absolute_path | bytes: {"bytes": ...} embedded
+    media_root: null          # relative media paths resolve against this dir
+    check_media_exists: true
+    empty_media_columns: false  # multimodal rows: write videos: [] etc. even when empty
+    split_by_modality: true   # text-only and multimodal rows in separate files (verl needs this)
+    on_invalid: drop          # drop (to sft/invalid.jsonl) | error
+
+  rl:                         # verl RLHFDataset
+    enabled: true
+    split: train              # file name rl/<split>.parquet and extra_info.split
+    verifier_types: null      # null = every registered verifier type; or a list, e.g. [answer_match]
+    keys: {}                  # rename columns, e.g. {prompt: raw_prompt}; must match verl data.prompt_key
+    reward_style: rule
+    on_invalid: drop          # drop (to rl/invalid.jsonl) | error
+    ability_map: {}           # domain -> ability
+    extra_info_fields: [index, split, task_id, source, verifier, verifier_version, difficulty]
+    prompt_suffix:            # verifier type -> appended to the user prompt; may use {function}
+      answer_match: "\n\n请把最终答案写在 \\boxed{} 里。"

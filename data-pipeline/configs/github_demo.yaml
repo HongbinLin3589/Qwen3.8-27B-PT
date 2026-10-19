@@ -1,0 +1,15 @@
+# configs/sources/github.yaml 下载的数据用这个配置跑。没有模型时关掉需要采样的步骤。
+run_name: github-demo
+workers: 8
+dedup:
+  minhash: {enabled: false}
+  embedding: {enabled: false}
+verifier_review: {enabled: false}
+leak_check: {enabled: false}
+difficulty: {enabled: false}
+trajectory: {enabled: false}
+export:
+  system_prompts: {math: "你是数学助手。"}
+  sft:
+    sources: [trajectories, reference]   # 也把数据集自带的解答导成 SFT
+    reference_strip: "<<[^>]*>>"

@@ -1,0 +1,32 @@
+{
+  "messages": [
+    {"role":"system","content":"You are a GUI agent operating a computer via screenshots. At each step, decide the next UI action and call the `computer_use` tool with the appropriate action and arguments. Coordinates are on a 0-999 grid. Call the tool exactly once per step; do not output the action as plain text."},
+    {"role":"user","content":"<image>\nTask: Use the Chase retirement calculator to project a 401(k) balance from age 25 to 65 with 4% annual return, $7,000 annual employee contributions, and $8,000 employer contributions."},
+    {"role":"assistant","content":"","tool_calls":[{"id":"call_1_0","type":"function","function":{"name":"computer_use","arguments":"{\"action\": \"left_click\", \"coordinate\": [180, 62]}"}}]},
+    {"role":"tool","content":"Success\n<image>","tool_call_id":"call_1_0"},
+    {"role":"assistant","content":"","tool_calls":[{"id":"call_2_0","type":"function","function":{"name":"computer_use","arguments":"{\"action\": \"type\", \"text\": \"Chase retirement calculator\"}"}}]},
+    {"role":"tool","content":"Success\n<image>","tool_call_id":"call_2_0"},
+    {"role":"assistant","content":"","tool_calls":[{"id":"call_3_0","type":"function","function":{"name":"computer_use","arguments":"{\"action\": \"left_click\", \"coordinate\": [177, 354]}"}}]},
+    {"role":"tool","content":"Success\n<image>","tool_call_id":"call_3_0"},
+    {"role":"assistant","content":"","tool_calls":[
+      {"id":"call_4_0","type":"function","function":{"name":"computer_use","arguments":"{\"action\": \"mouse_move\", \"coordinate\": [176, 355]}"}},
+      {"id":"call_4_1","type":"function","function":{"name":"computer_use","arguments":"{\"action\": \"scroll\", \"pixels\": -7}"}}
+    ]}
+  ],
+  "tools": [{"type":"function","function":{
+    "name":"computer_use",
+    "description":"Use a mouse and keyboard to interact with a computer, and take screenshots.",
+    "parameters":{"type":"object","required":["action"],"properties":{
+      "action":{"type":"string","enum":["key","key_down","key_up","left_mouse_down","left_mouse_up","type","mouse_move","left_click","left_click_drag","right_click","middle_click","double_click","triple_click","scroll","hscroll","screenshot","wait","terminate","call_user"]},
+      "keys":{"type":"array"},
+      "text":{"type":"string"},
+      "coordinate":{"type":"array"},
+      "pixels":{"type":"number"},
+      "time":{"type":"number"},
+      "status":{"type":"string","enum":["success","failure"]}
+    }}
+  }}],
+  "images": [{"image":"images/screen_0.jpg"},{"image":"images/screen_1.jpg"},{"image":"images/screen_2.jpg"},{"image":"images/screen_3.jpg"}],
+  "videos": [],
+  "enable_thinking": false
+}

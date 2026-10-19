@@ -1,0 +1,46 @@
+# 从 Hugging Face 下载。数据集名和字段名按 2026-10 时 HF 上的版本填写，
+# 但在开发环境里连不上 HF，没有实际下载验证过；首次运行请看 manifest.json。
+# 用镜像：export HF_ENDPOINT=https://hf-mirror.com ；私有数据：export HF_TOKEN=...
+cache_dir: null          # 默认 <out>/cache
+sources:
+  # ---------------- 训练候选 ----------------
+  - name: gsm8k
+    role: train
+    license: MIT
+    loader: {type: hf, repo: openai/gsm8k, config: main, split: train}
+    mapper: {type: fields, id: "{index}", prompt: question, answer: answer, answer_after: "####",
+             reference_text: answer, domain: math}
+
+  - name: dapo-math-17k
+    role: train
+    license: Apache-2.0
+    # 原始文件约 179 万行，是 1.7 万道题各重复约 100 次，正好用来检验精确去重
+    loader: {type: hf, repo: BytedTsinghua-SIA/DAPO-Math-17k, split: train, limit: 200000}
+    mapper: {type: fields, id: "{index}", prompt: prompt.0.content, answer: reward_model.ground_truth, domain: math}
+
+  - name: mbpp
+    role: train
+    license: CC-BY-4.0
+    loader: {type: hf, repo: google-research-datasets/mbpp, config: full, split: train}
+    mapper: {type: mbpp}
+
+  # ---------------- 评测集（只用来去污染） ----------------
+  - name: gsm8k-test
+    role: eval
+    loader: {type: hf, repo: openai/gsm8k, config: main, split: test}
+    mapper: {type: fields, prompt: question, answer: answer, answer_after: "####"}
+
+  - name: math500
+    role: eval
+    loader: {type: hf, repo: HuggingFaceH4/MATH-500, split: test}
+    mapper: {type: fields, id: unique_id, prompt: problem, answer: answer}
+
+  - name: humaneval
+    role: eval
+    loader: {type: hf, repo: openai/openai_humaneval, split: test}
+    mapper: {type: humaneval}
+
+  - name: mbpp-test
+    role: eval
+    loader: {type: hf, repo: google-research-datasets/mbpp, config: sanitized, split: test}
+    mapper: {type: mbpp}

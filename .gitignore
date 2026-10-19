@@ -48,3 +48,7 @@ tests/data/**
 # (Junbin)
 docs/
 AGENTS.md
+
+# Version the preprocessing package's user-facing documentation.
+!data-pipeline/docs/
+!data-pipeline/docs/**

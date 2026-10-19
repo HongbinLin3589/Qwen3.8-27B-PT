@@ -1,0 +1,116 @@
+{
+  "dataset": "open-r1/OpenR1-Math-220k",
+  "subset": "default",
+  "revision": "e4e141ec9dea9f8326f4d347be56105859b2bd68",
+  "tokenizer": "Qwen/Qwen3.8-27B",
+  "tokenizer_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "license": "Apache-2.0",
+  "eval_revisions": {
+    "polaris": "eda12fe22dd83aca59ec46a67147240dc483f62b",
+    "math500": "6e4ed1a2a79af7d8630a6b768ec859cb5af4d3be"
+  },
+  "artifacts": [
+    {
+      "url": "https://huggingface.co/datasets/open-r1/OpenR1-Math-220k/resolve/e4e141ec9dea9f8326f4d347be56105859b2bd68/data/train-00000-of-00010.parquet",
+      "bytes": 213636225,
+      "sha256": "ccc3a95e4875dc4cff9bec2f0fb1c93e4c9cbb24fb24853fd0b96c416e1a263c",
+      "raw_path": "openr1/train-00000-of-00010.parquet"
+    },
+    {
+      "url": "https://huggingface.co/datasets/open-r1/OpenR1-Math-220k/resolve/e4e141ec9dea9f8326f4d347be56105859b2bd68/data/train-00001-of-00010.parquet",
+      "bytes": 214580713,
+      "sha256": "a7d3eb54d97f7e1237a872947f2246de54a104be224646f62f588abdf6c7db60",
+      "raw_path": "openr1/train-00001-of-00010.parquet"
+    },
+    {
+      "url": "https://huggingface.co/datasets/open-r1/OpenR1-Math-220k/resolve/e4e141ec9dea9f8326f4d347be56105859b2bd68/data/train-00002-of-00010.parquet",
+      "bytes": 214585972,
+      "sha256": "a44a2354bfa752541ab768b62edf01f3df4b9b2a7660774ab1eb6e7f19f0a86b",
+      "raw_path": "openr1/train-00002-of-00010.parquet"
+    },
+    {
+      "url": "https://huggingface.co/datasets/open-r1/OpenR1-Math-220k/resolve/e4e141ec9dea9f8326f4d347be56105859b2bd68/README.md",
+      "bytes": 5131,
+      "sha256": "87a0390ba632618254d50c1614feb6a5a7803a28710118e1705bab18bda5e64e",
+      "raw_path": "openr1/README.md"
+    },
+    {
+      "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/tokenizer.json",
+      "bytes": 12809320,
+      "sha256": "0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3",
+      "raw_path": "tokenizer/tokenizer.json"
+    },
+    {
+      "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/tokenizer_config.json",
+      "bytes": 17928,
+      "sha256": "b11349aafa7cdc6a320767cf7ceb29ed82f7eda5d65e8e0819e76f0ce947bf27",
+      "raw_path": "tokenizer/tokenizer_config.json"
+    },
+    {
+      "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/chat_template.jinja",
+      "bytes": 8952,
+      "sha256": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041",
+      "raw_path": "tokenizer/chat_template.jinja"
+    },
+    {
+      "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/config.json",
+      "bytes": 4312,
+      "sha256": "191e0af232104ed8b65258cf3fb2b842e288008baca7633c11b82a1ac7203aab",
+      "raw_path": "tokenizer/config.json"
+    },
+    {
+      "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/vocab.json",
+      "bytes": 6722759,
+      "sha256": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003",
+      "raw_path": "tokenizer/vocab.json"
+    },
+    {
+      "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/merges.txt",
+      "bytes": 3353259,
+      "sha256": "a9d356d7bdf1ef4949e3e748e95b8e10ad9d4e2e838eddc38a0a7b6b94d1db8d",
+      "raw_path": "tokenizer/merges.txt"
+    },
+    {
+      "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/LICENSE",
+      "bytes": 11544,
+      "sha256": "bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a",
+      "raw_path": "tokenizer/LICENSE"
+    },
+    {
+      "url": "https://huggingface.co/datasets/HuggingFaceH4/MATH-500/resolve/6e4ed1a2a79af7d8630a6b768ec859cb5af4d3be/test.jsonl",
+      "bytes": 446564,
+      "sha256": "35dc41080a3680858b27fa7e0533d2d547825316fc5dafe5d316f4ccc5a06132",
+      "raw_path": "eval/math500.jsonl"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/ChenxinAn-fdu/POLARIS/eda12fe22dd83aca59ec46a67147240dc483f62b/evaluation/benchmarks/aime24.parquet",
+      "bytes": 14229,
+      "sha256": "784313b60c71b82256324cd4fa6966b5b1e0e55eb610cae5d62abbafb9f10bb9",
+      "raw_path": "eval/aime24.parquet"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/ChenxinAn-fdu/POLARIS/eda12fe22dd83aca59ec46a67147240dc483f62b/evaluation/benchmarks/aime25.parquet",
+      "bytes": 13693,
+      "sha256": "237949e9ebb2620cf2d0db7a002928bc5f137eda4c51368bce49022fa7ac1249",
+      "raw_path": "eval/aime25.parquet"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/ChenxinAn-fdu/POLARIS/eda12fe22dd83aca59ec46a67147240dc483f62b/evaluation/benchmarks/amc23.parquet",
+      "bytes": 20983,
+      "sha256": "3f1e66970f2106c31662de32cc4a4df48e5c972fb275a4c6f76581b6d68e7f96",
+      "raw_path": "eval/amc23.parquet"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/ChenxinAn-fdu/POLARIS/eda12fe22dd83aca59ec46a67147240dc483f62b/evaluation/benchmarks/minerva.parquet",
+      "bytes": 63587,
+      "sha256": "87ee8f46f503fc61e27cc0f55d8815882143501ca3fd14581eb241cb3350d26c",
+      "raw_path": "eval/minerva.parquet"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/ChenxinAn-fdu/POLARIS/eda12fe22dd83aca59ec46a67147240dc483f62b/evaluation/benchmarks/olympiad.parquet",
+      "bytes": 117864,
+      "sha256": "ae9fe65cdf31ad2a2220b4f9bc5039544f1b29de5b59db40b782efaf185921b7",
+      "raw_path": "eval/olympiad.parquet"
+    }
+  ]
+}

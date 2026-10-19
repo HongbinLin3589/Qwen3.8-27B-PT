@@ -1,0 +1,263 @@
+{
+  "dataset_id": "math-sft-10k-v1",
+  "total_rows": 10000,
+  "train_rows": 9500,
+  "validation_rows": 500,
+  "seed": 20261019,
+  "source_revision": "e4e141ec9dea9f8326f4d347be56105859b2bd68",
+  "tokenizer_id": "Qwen/Qwen3.8-27B",
+  "tokenizer_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "max_length": 8192,
+  "sequence_length": {
+    "min": 1025,
+    "median": 3928,
+    "p95": 7596,
+    "max": 8191,
+    "total": 41880669
+  },
+  "categories": {
+    "Combinatorics": 1664,
+    "Algebra": 2203,
+    "Inequalities": 417,
+    "Geometry": 2202,
+    "Number Theory": 2202,
+    "Calculus": 640,
+    "Logic and Puzzles": 575,
+    "Other": 97
+  },
+  "sources": {
+    "olympiads": 7159,
+    "cn_contest": 1471,
+    "aops_forum": 1037,
+    "inequalities": 82,
+    "number_theory": 40,
+    "olympiads_ref": 60,
+    "amc_aime": 151
+  },
+  "teacher_success_rate_counts": {
+    "1.0": 8440,
+    "0.5": 1354,
+    "0.75": 113,
+    "0.25": 79,
+    "0.2": 2,
+    "0.6666666666666666": 2,
+    "0.3333333333333333": 5,
+    "0.16666666666666666": 5
+  },
+  "filter_counts": {
+    "source_problems": 28122,
+    "drop:proof_or_missing_visual_or_answer": 1720,
+    "drop:no_complete_math_verified_trace": 8166,
+    "drop:exact_duplicate": 1,
+    "drop:exact_eval_overlap": 1,
+    "accepted": 14222,
+    "too_long": 3438,
+    "answer_mismatch": 127,
+    "short_reasoning": 134,
+    "unparseable_answer": 4
+  },
+  "pipeline_counts": {
+    "dedup": {
+      "drop:near_dup": 283,
+      "kept": 17951
+    },
+    "decontam_split": {
+      "boilerplate_ngrams_ignored": 0,
+      "drop:contaminated_ngram": 26,
+      "eval_items_loaded": 1590,
+      "kept": 17925
+    }
+  },
+  "eval_sets": {
+    "aime24": 30,
+    "aime25": 30,
+    "amc23": 83,
+    "math500": 500,
+    "minerva": 272,
+    "olympiad": 675
+  },
+  "dedup_config": {
+    "answer_guard": false,
+    "minhash": {
+      "enabled": true,
+      "threshold": 0.8,
+      "ngram": 5,
+      "num_perm": 128,
+      "bands": 16,
+      "seed": 20261019
+    },
+    "embedding": {
+      "enabled": false
+    }
+  },
+  "decontam_config": {
+    "ngram": {
+      "n": 13,
+      "min_shared": 1,
+      "word_tokens": true,
+      "max_eval_df": 3,
+      "max_train_df": 50,
+      "min_overlap": 0.2
+    },
+    "embedding": {
+      "enabled": false
+    },
+    "time_split": {
+      "enabled": false
+    },
+    "repo_split": {
+      "enabled": false
+    }
+  },
+  "train_validation_exact_overlap": 0,
+  "artifacts": [
+    {
+      "file": "data-00000-of-00010.parquet",
+      "split": "mixed",
+      "rows": 1000,
+      "train_rows": 950,
+      "validation_rows": 50,
+      "bytes": 3025043,
+      "sha256": "263129b0b3382baecc389fdd43bd6c939095627290cc78913e0c6bb4d991f704",
+      "format_invalid": 0,
+      "real_loader_passed": 1000
+    },
+    {
+      "file": "data-00001-of-00010.parquet",
+      "split": "mixed",
+      "rows": 1000,
+      "train_rows": 950,
+      "validation_rows": 50,
+      "bytes": 3089070,
+      "sha256": "11d48ef1ce466815d753df73778870402a67477fa3ef9ebe9347cb796a6b64a1",
+      "format_invalid": 0,
+      "real_loader_passed": 1000
+    },
+    {
+      "file": "data-00002-of-00010.parquet",
+      "split": "mixed",
+      "rows": 1000,
+      "train_rows": 950,
+      "validation_rows": 50,
+      "bytes": 2994721,
+      "sha256": "9ef5259cb2cfbb80c0643d08a375bf26bb0e17f34ccb6541cc1da793d61d49bd",
+      "format_invalid": 0,
+      "real_loader_passed": 1000
+    },
+    {
+      "file": "data-00003-of-00010.parquet",
+      "split": "mixed",
+      "rows": 1000,
+      "train_rows": 950,
+      "validation_rows": 50,
+      "bytes": 3046749,
+      "sha256": "8557e4b3f160f393ffa4203ed9000f49177560d4dde3b8fc39f3e6628d712ccd",
+      "format_invalid": 0,
+      "real_loader_passed": 1000
+    },
+    {
+      "file": "data-00004-of-00010.parquet",
+      "split": "mixed",
+      "rows": 1000,
+      "train_rows": 950,
+      "validation_rows": 50,
+      "bytes": 2987269,
+      "sha256": "e894f7a46e88d1e369619f153f731ac61dac9c99944e091ea9f7618d406152bd",
+      "format_invalid": 0,
+      "real_loader_passed": 1000
+    },
+    {
+      "file": "data-00005-of-00010.parquet",
+      "split": "mixed",
+      "rows": 1000,
+      "train_rows": 950,
+      "validation_rows": 50,
+      "bytes": 2982834,
+      "sha256": "b5cb7050154ea979aa0f023f08d75dff4838b38c2ff633784fd46d1877bcc375",
+      "format_invalid": 0,
+      "real_loader_passed": 1000
+    },
+    {
+      "file": "data-00006-of-00010.parquet",
+      "split": "mixed",
+      "rows": 1000,
+      "train_rows": 950,
+      "validation_rows": 50,
+      "bytes": 3109486,
+      "sha256": "e81314fb623fcbeb6daa3dff4e8b90965690ff1d5d911b99f25c48f58aaf4dce",
+      "format_invalid": 0,
+      "real_loader_passed": 1000
+    },
+    {
+      "file": "data-00007-of-00010.parquet",
+      "split": "mixed",
+      "rows": 1000,
+      "train_rows": 950,
+      "validation_rows": 50,
+      "bytes": 3081976,
+      "sha256": "f1bd97976f20a2c4bb3f3875ad6eddaf7b7803bfd7e22e70a3ea53ae83b16997",
+      "format_invalid": 0,
+      "real_loader_passed": 1000
+    },
+    {
+      "file": "data-00008-of-00010.parquet",
+      "split": "mixed",
+      "rows": 1000,
+      "train_rows": 950,
+      "validation_rows": 50,
+      "bytes": 3015581,
+      "sha256": "4a097c3f0c1c5eb1db057837c41b4c1160fcb2f6a9c92ccf169142147b439f50",
+      "format_invalid": 0,
+      "real_loader_passed": 1000
+    },
+    {
+      "file": "data-00009-of-00010.parquet",
+      "split": "mixed",
+      "rows": 1000,
+      "train_rows": 950,
+      "validation_rows": 50,
+      "bytes": 3043428,
+      "sha256": "188a463b89ca8aeb393de18fa4e2337c13538c8c5a3ccda6182979d4da3ba75a",
+      "format_invalid": 0,
+      "real_loader_passed": 1000
+    }
+  ],
+  "base_repository_commit": "cd2f77933639cf31b3dcbb86507020daf6efff93",
+  "checks": {
+    "all_final_answers_reverified": true,
+    "all_rows_loaded_with_real_QwenSFTDataset": true,
+    "truncated_rows": 0,
+    "target_model_difficulty_measured": false,
+    "semantic_decontamination_performed": false,
+    "gpu_training_run": false
+  },
+  "limitations": [
+    "Final-answer equivalence does not prove every reasoning step.",
+    "Only the listed public eval sets were checked using exact / lexical overlap.",
+    "MinHash is approximate; it cannot exclude all semantic paraphrases.",
+    "Teacher success is a DeepSeek-R1 proxy, not target-model pass rate.",
+    "This is math reasoning SFT, not SWE/terminal/tool-use training or capability-retention replay."
+  ],
+  "build_seconds": 176.5,
+  "build_environment": {
+    "transformers": "5.9.0",
+    "torch": "2.11.0",
+    "pyarrow": "26.0.0",
+    "numpy": "2.5.4",
+    "math-verify": "0.9.0",
+    "jsonschema": "4.26.0"
+  },
+  "compression": {
+    "codec": "zstd",
+    "level": 9,
+    "all_rows_equal_to_loader_validated_tables": true
+  },
+  "storage_reshard_verified_by_full_table_equality": true,
+  "storage_layout": {
+    "files": 10,
+    "rows_per_file": 1000,
+    "train_rows_per_file": 950,
+    "validation_rows_per_file": 50,
+    "split_column": "split"
+  }
+}

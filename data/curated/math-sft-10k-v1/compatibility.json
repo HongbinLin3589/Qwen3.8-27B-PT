@@ -1,0 +1,17 @@
+{
+  "pyarrow": "23.0.1",
+  "transformers": "5.9.0",
+  "torch": "2.11.0 (CPU/Mac)",
+  "dataset_loader": "qwenpt.train.verl.dataset.QwenSFTDataset",
+  "tokenizer_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "train_samples_loaded": 9500,
+  "validation_samples_loaded": 500,
+  "truncation": "error",
+  "max_length": 8192,
+  "gpu_forward_backward_run": false,
+  "distribution_files": 10,
+  "rows_per_distribution_file": 1000,
+  "train_rows_per_distribution_file": 950,
+  "validation_rows_per_distribution_file": 50,
+  "resharded_prepare_full_loader_rechecked": true
+}

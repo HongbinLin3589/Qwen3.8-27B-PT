@@ -24,11 +24,11 @@ done
 cd -- "$project_root"
 source ./.venv/bin/activate
 
-# Edit these experiment settings when the model and real SFT data are available.
-model_path="$project_root/models/Qwen3.8-27B"
-train_file="$project_root/data/processed/sft/train.parquet"
-val_file="$project_root/data/processed/sft/val.parquet"
-output_dir="$project_root/checkpoints/sft-smoke"
+# Optional environment overrides let curated datasets reuse this entry point.
+model_path="${QWENPT_MODEL_PATH:-$project_root/models/Qwen3.8-27B}"
+train_file="${QWENPT_TRAIN_FILE:-$project_root/data/processed/sft/train.parquet}"
+val_file="${QWENPT_VAL_FILE:-$project_root/data/processed/sft/val.parquet}"
+output_dir="${QWENPT_OUTPUT_DIR:-$project_root/checkpoints/sft-smoke}"
 
 if [[ ! -f "$model_path/config.json" ]]; then
     echo "Set model_path in scripts/train/sft.sh to a local model directory." >&2

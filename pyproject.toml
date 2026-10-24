@@ -9,6 +9,10 @@ dependencies = [
     "torch==2.11.0+cu129",
     "torchvision==0.26.0+cu129",
     "transformers==5.9.0",
+    "fla-core==0.5.2",
+    "tilelang==0.1.12",
+    "ml-dtypes==0.5.4",
+    "einops==0.8.1",
     "numpy>=2,<3",
     "pillow>=11,<13",
     "pyarrow==23.0.1",
@@ -32,6 +36,15 @@ test = ["pytest>=9,<10", "sortedcontainers"]
 [tool.uv.sources]
 torch = { index = "pytorch-cu129" }
 torchvision = { index = "pytorch-cu129" }
+fla-core = { index = "pypi-fla" }
+einops = { index = "pypi-fla" }
+tilelang = { index = "pypi-fla" }
+ml-dtypes = { index = "pypi-fla" }
+
+[[tool.uv.index]]
+name = "pypi-fla"
+url = "https://pypi.org/simple"
+explicit = true
 
 [[tool.uv.index]]
 name = "pytorch-cu129"

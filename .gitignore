@@ -54,3 +54,13 @@ AGENTS.md
 /runs/
 /export/
 /examples/data/sample/
+
+# Generated SFT inputs, checkpoints and cluster logs.
+/data/processed/
+/checkpoints/
+/slurm_log/
+/sft_*.out
+/sft_*.err
+
+outputs/
+data/

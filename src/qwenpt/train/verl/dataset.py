@@ -40,7 +40,7 @@ class QwenSFTDataset(Dataset):
             raise ValueError(f"Unsupported template kwargs: {sorted(unsupported)}")
         self.tokenizer = tokenizer
         self.processor = processor
-        self.max_length = int(config.get("max_length", 2048))
+        self.max_length = int(config.get("max_length", 8192))
         if self.max_length <= 0:
             raise ValueError("max_length must be positive")
         self.loss_scope = config.get("loss_scope", "all_assistant")

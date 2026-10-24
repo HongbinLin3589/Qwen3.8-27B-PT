@@ -11,7 +11,7 @@ def main() -> None:
     parser.add_argument("--tokenizer", required=True, help="Tokenizer/model ID or local snapshot path")
     parser.add_argument("--processor", help="Optional multimodal processor ID or local snapshot path")
     parser.add_argument("--local-files-only", action="store_true")
-    parser.add_argument("--max-length", type=int, default=2048)
+    parser.add_argument("--max-length", type=int, default=8192)
     parser.add_argument("--limit", type=int, default=3)
     parser.add_argument("--loss-scope", choices=("all_assistant", "last_assistant"), default="all_assistant")
     args = parser.parse_args()

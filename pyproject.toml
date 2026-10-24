@@ -29,6 +29,7 @@ code = ["sortedcontainers"]
 
 [project.scripts]
 datapipe = "qwenpt.data.cli:main"
+benchmark = "qwenpt.eval.cli:main"
 
 [dependency-groups]
 test = ["pytest>=9,<10", "sortedcontainers"]

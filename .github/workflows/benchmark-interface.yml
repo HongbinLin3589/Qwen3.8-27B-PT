@@ -1,0 +1,45 @@
+name: Benchmark interface
+
+on:
+  push:
+    paths:
+      - 'src/qwenpt/eval/**'
+      - 'src/qwenpt/train/utils/bolt_math.py'
+      - 'tests/eval/**'
+      - 'configs/eval/**'
+      - 'examples/eval/**'
+      - '.github/workflows/benchmark-interface.yml'
+  pull_request:
+    paths:
+      - 'src/qwenpt/eval/**'
+      - 'src/qwenpt/train/utils/bolt_math.py'
+      - 'tests/eval/**'
+      - 'configs/eval/**'
+      - 'examples/eval/**'
+      - '.github/workflows/benchmark-interface.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  cpu-contracts:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: src
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install evaluation-only test dependencies
+        run: python -m pip install 'PyYAML>=6,<7' 'pytest>=9,<10' 'pyarrow==23.0.1' 'math-verify==0.9.0' 'latex2sympy2-extended==1.11.0'
+      - name: Verify portable API and existing CPU contracts
+        run: python -m pytest tests/eval --ignore=tests/eval/test_export_adapter.py -q
+      - name: Offline subset and full examples
+        run: |
+          python -m qwenpt.eval plan --config configs/eval/demo.yaml --split subset --output runs/eval/ci-subset
+          python -m qwenpt.eval run --config configs/eval/demo.yaml --split subset --output runs/eval/ci-subset --backend mock
+          python -m qwenpt.eval score --config configs/eval/demo.yaml --split subset --output runs/eval/ci-subset
+          python -m qwenpt.eval run --config configs/eval/demo.yaml --split full --output runs/eval/ci-full --backend mock
+          python -m qwenpt.eval score --config configs/eval/demo.yaml --split full --output runs/eval/ci-full

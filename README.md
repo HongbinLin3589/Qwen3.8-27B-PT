@@ -4,6 +4,21 @@ For full documentation, refer to [Feishu](https://bcnaodifzwip.feishu.cn/wiki/BV
 
 Do not commit or push personal AI agent files or configurations, such as `AGENTS.md`, `.agent/`, or similar files and directories, to this repository.
 
+## Benchmark evaluation
+
+The [Benchmark README](docs/eval/README.md) documents the prepared-bank API interface
+in `src/qwenpt/eval`. Use `python -m qwenpt.eval plan|run|score` with an explicit
+`--split subset` or `--split full`. Selection manifests freeze task IDs and dataset
+hashes; generation is resumable and can be rescored with a separately configured
+judge. Fill model and judge credentials in a local `.env` copied from
+`configs/eval/.env.example`; keys are never stored in run manifests.
+
+An offline synthetic example is included in `configs/eval/demo.yaml`. Official
+agent environments and benchmark-specific graders require their own adapters;
+the README distinguishes implemented interfaces from the broader evaluation plan.
+The existing `scripts/eval/bolt_benchmarks.sh` GPU workflow and its monitor retain
+their original GPQA/AIME protocol and output format.
+
 ## Data preprocessing
 
 The [data pipeline](docs/data/README.md) lives in `src/qwenpt/data` and is installed with the main `qwenpt` package. It downloads and normalizes datasets, filters tasks, and exports SFT/RL Parquet. Prepared SFT JSON, JSONL and Parquet can also be imported directly. See the [format contract](docs/data/data_format.md) and [release notes](docs/data/CHANGELOG.md).

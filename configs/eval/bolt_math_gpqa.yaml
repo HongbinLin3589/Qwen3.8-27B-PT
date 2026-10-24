@@ -1,0 +1,55 @@
+# Uses the existing prepare_benchmarks.py output. The dataset is not bundled.
+# Edit bank and model.revision before use. Paths are relative to THIS file.
+version: 1
+suite: bolt-math-gpqa-api
+bank: ../../data/processed/eval/bolt-bank/question_bank.jsonl
+dataset:
+  name: qwenpt-prepared-gpqa-aime
+  # Provenance and individual pinned source revisions are in the bank manifest.
+  revision: prepare-benchmarks-pinned-sources-v1
+  split: gpqa-diamond-and-aime-2024-2026
+  expected_counts:
+    gpqa_diamond: 198
+    aime2024: 30
+    aime2025: 30
+    aime2026: 30
+model:
+  # REQUIRED: replace with the real immutable checkpoint/export hash.
+  revision: FILL_WITH_CHECKPOINT_SHA256
+  base_url_env: BENCHMARK_BASE_URL
+  model_env: BENCHMARK_MODEL
+  api_key_env: BENCHMARK_API_KEY
+  api_key_required: true
+generation:
+  # vLLM/SGLang-style Chat Completions settings. Adjust context budget at server.
+  max_tokens: 32768
+  temperature: 1.0
+  top_p: 0.95
+  seed: 20261024
+# One sample per selected question, including in full mode.
+# For avg@32, explicitly set samples: 32 under EACH aime benchmark below.
+# Bank-level samples is a compatibility field, not an execution override.
+samples: 1
+subset:
+  seed: 20261024
+  # The existing bank has no difficulty labels; it forms one stratum per bench.
+  # Add reviewed stratum labels to a new frozen bank for richer stratification.
+  stratify_by: stratum
+  counts:
+    gpqa_diamond: 24
+    aime2024: 10
+    aime2025: 10
+    aime2026: 10
+benchmarks:
+  gpqa_diamond:
+    scorer:
+      type: multiple_choice
+  aime2024:
+    scorer:
+      type: math_equivalence
+  aime2025:
+    scorer:
+      type: math_equivalence
+  aime2026:
+    scorer:
+      type: math_equivalence

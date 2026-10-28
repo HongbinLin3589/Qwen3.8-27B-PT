@@ -58,3 +58,6 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-name = "qwenpt"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

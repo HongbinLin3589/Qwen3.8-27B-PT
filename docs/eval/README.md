@@ -284,7 +284,11 @@ runs/eval/step-100-subset/
 
 ## 8. 与既有 BOLT 评测和项目清单的关系
 
-旧入口 [bolt_benchmarks.sh](../../scripts/eval/bolt_benchmarks.sh)、`qwenpt.eval.run_benchmark`、`summarize` 和 `monitor` 继续服务于既有 HPC 流程：五个模型版本 × 四个 benchmark，共 20 项作业，GPQA 每题一次、AIME 每题 32 次。旧 `smoke` 是少量工程试跑，不能直接当成冻结的训练子集。
+旧 BOLT GPU runner、汇总、监控、模型导出工具与专用测试已迁移至 [legacy/benchmark](../../legacy/benchmark/README.md)，退出当前评测开发目录。
+该归档记录五个模型版本 × 四个 benchmark 的历史 HPC 流程，GPQA 每题一次、AIME 每题 32 次；旧 `smoke` 不能直接当成冻结的训练子集。
+当前接口不依赖 `legacy/`，后续删除归档不影响本接口。
+题库准备工具 `qwenpt.eval.prepare_benchmarks` 与最终答案提取工具 `qwenpt.eval.scoring.last_boxed` 仍保留在当前模块，数学判等继续复用训练侧 `bolt_math`。
+本次拆分修改了评分文件的源码指纹，但未改变当前评分算法；已有 predictions 可继续使用，重评时若旧 score tag 的指纹不匹配，请使用新的 `--score-tag` 保留原评分记录。
 
 新接口的 API 输出和 score 目录独立，不写入旧 `results/<variant>/<benchmark>/results.jsonl`，也不交给旧 20 项作业监控汇总。原有模型导出和 checkpoint 加载由已有训练流程负责；新 API 接口消费已经启动的模型服务。
 
@@ -305,7 +309,11 @@ runs/eval/step-100-subset/
 python -m pytest tests/eval/test_suite.py tests/eval/test_api_backend.py tests/eval/test_api_scoring.py -q
 ```
 
-完整的旧评测测试在原有 Linux/CUDA 评测环境运行 `python -m pytest tests/eval -q`，需要 `torch`、`safetensors`、`pyarrow` 和数学判分依赖；旧 runner/monitor 使用 Linux 的 `fcntl`，不能直接在 Windows 导入。本次通用 API/规则接口支持 Windows 与 Linux，但数学 scorer 复用已有的数学验证器，其超时/子进程逻辑需在原有验证过的 Linux runtime 使用；本次 Windows 环境未通过该数学依赖的实测，不宣称数学评分已在 Windows 验证。离线 demo 和本地 HTTP 测试验证接口工程，不包含真实付费 API 可用性、真实数据成绩或 GUI 环境验证。
+当前评测测试使用 `python -m pytest tests/eval -q`，包含 API 接口、评分与题库准备测试，不收集归档测试。
+默认 `python -m pytest` 仅从 `tests/` 收集；归档测试需按 [legacy 说明](../../legacy/benchmark/README.md)显式运行。
+通用 API/规则接口支持 Windows 与 Linux，但数学 scorer 复用已有的数学验证器，其超时/子进程逻辑需在原有验证过的 Linux runtime 使用。
+本次 Windows 环境未通过该数学依赖的实测，不宣称数学评分已在 Windows 验证。
+离线 demo 和本地 HTTP 测试验证接口工程，不包含真实付费 API 可用性、真实数据成绩或 GUI 环境验证。
 
 | 情况 | 处理 |
 |---|---|

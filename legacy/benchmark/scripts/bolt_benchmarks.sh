@@ -40,7 +40,7 @@ fi
 
 # Reuse the already tested CUDA runtime without changing the training environment.
 eval_python=/data/user/jqiu236/Projects/PricePTQ/.venv/bin/python
-export PYTHONPATH="$run_dir/source_snapshot/src"
+export PYTHONPATH="$run_dir/source_snapshot:$run_dir/source_snapshot/src"
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 RAYON_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 export TOKENIZERS_PARALLELISM=false HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 export VLLM_WORKER_MULTIPROC_METHOD=spawn
@@ -62,7 +62,7 @@ case "$mode" in
     *) echo "Unknown evaluation mode: $mode" >&2; exit 2 ;;
 esac
 
-"$eval_python" -m qwenpt.eval.run_benchmark \
+"$eval_python" -m legacy.benchmark.run_benchmark \
     --bank "$run_dir/bank/question_bank.jsonl" --model "$model_path" \
     --variant "$variant" --variant-fingerprint "$fingerprint" \
     --benchmark "$benchmark" --output "$output" \

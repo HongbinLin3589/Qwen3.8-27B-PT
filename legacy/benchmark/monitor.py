@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from qwenpt.eval.summarize import BENCHMARKS, VARIANTS, summarize_run, summarize_task
+from legacy.benchmark.summarize import BENCHMARKS, VARIANTS, summarize_run, summarize_task
 
 TERMINAL_STATES = {
     "COMPLETED", "FAILED", "CANCELLED", "OUT_OF_MEMORY", "TIMEOUT", "NODE_FAIL",

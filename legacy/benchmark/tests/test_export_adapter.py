@@ -9,7 +9,7 @@ from torch.distributed.tensor import DTensor, Shard
 from torch.distributed.tensor._dtensor_spec import DTensorSpec, TensorMeta
 from safetensors.torch import load_file
 
-from qwenpt.eval.export_adapter import adapter_weights, export_adapter, merge_base, merge_shards
+from legacy.benchmark.export_adapter import adapter_weights, export_adapter, merge_base, merge_shards
 
 
 def dtensor(tensor, rank):

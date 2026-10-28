@@ -2,8 +2,8 @@
 
 import pytest
 
-from qwenpt.eval.scoring import last_boxed, score_completion
-from qwenpt.eval.summarize import summarize_task
+from legacy.benchmark.scoring import last_boxed, score_completion
+from legacy.benchmark.summarize import summarize_task
 
 
 def test_reasoning_is_never_graded():

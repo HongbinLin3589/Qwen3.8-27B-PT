@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from qwenpt.eval import run_benchmark as module
+from legacy.benchmark import run_benchmark as module
 
 
 def _score(text, benchmark, answer):
@@ -18,7 +18,7 @@ def _score(text, benchmark, answer):
 
 @pytest.fixture
 def fake_grader(monkeypatch):
-    monkeypatch.setitem(sys.modules, "qwenpt.eval.scoring", SimpleNamespace(score_completion=_score))
+    monkeypatch.setitem(sys.modules, "legacy.benchmark.scoring", SimpleNamespace(score_completion=_score))
 
 
 def _args(tmp_path):

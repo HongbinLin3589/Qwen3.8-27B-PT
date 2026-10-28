@@ -16,8 +16,8 @@ judge. Fill model and judge credentials in a local `.env` copied from
 An offline synthetic example is included in `configs/eval/demo.yaml`. Official
 agent environments and benchmark-specific graders require their own adapters;
 the README distinguishes implemented interfaces from the broader evaluation plan.
-The existing `scripts/eval/bolt_benchmarks.sh` GPU workflow and its monitor retain
-their original GPQA/AIME protocol and output format.
+The previous BOLT GPU workflow, model export tools, and their tests are archived under [legacy/benchmark](legacy/benchmark/README.md).
+The active benchmark interface has no runtime dependency on that archive.
 
 ## Data preprocessing
 

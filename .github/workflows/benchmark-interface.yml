@@ -34,8 +34,8 @@ jobs:
           python-version: '3.12'
       - name: Install evaluation-only test dependencies
         run: python -m pip install 'PyYAML>=6,<7' 'pytest>=9,<10' 'pyarrow==23.0.1' 'math-verify==0.9.0' 'latex2sympy2-extended==1.11.0'
-      - name: Verify portable API and existing CPU contracts
-        run: python -m pytest tests/eval --ignore=tests/eval/test_export_adapter.py -q
+      - name: Verify active benchmark CPU contracts
+        run: python -m pytest tests/eval -q
       - name: Offline subset and full examples
         run: |
           python -m qwenpt.eval plan --config configs/eval/demo.yaml --split subset --output runs/eval/ci-subset

@@ -4,6 +4,26 @@ For full documentation, refer to [Feishu](https://bcnaodifzwip.feishu.cn/wiki/BV
 
 Do not commit or push personal AI agent files or configurations, such as `AGENTS.md`, `.agent/`, or similar files and directories, to this repository.
 
+## Benchmark evaluation
+
+The [Benchmark README](docs/eval/README.md) covers the Feishu general-model task
+matrix. Start with `python -m qwenpt.eval project list --config configs/eval/project.yaml`.
+Use `project doctor|plan|run|score` with explicit `--profile core|scenarios|all` and
+`--split subset|full`: the core subset has 150 instruction, science, code, math,
+terminal and repository tasks; browser, spreadsheet, desktop and phone smoke
+tests form a separate 20-task profile. Frozen full profiles contain 955 core
+and 1,445 scenario tasks, with repeat counts tracked separately.
+
+`prepare --config configs/eval/sources.yaml --output data/processed/eval/general --download`
+imports pinned sources. Official IFBench, LiveCodeBench, Harbor/Pier and native
+scenario adapters preserve task-specific grading. Environment tasks require
+their documented runtimes; browser/spreadsheet grading consumes project-agent
+artifacts. Missing tasks prevent a complete all-capability result. Fill the
+model revision and credentials in a local `.env` copied from
+`configs/eval/.env.example`; no real keys are committed. The old 54/288 GPQA/AIME
+configuration is an optional compatibility suite; historical BOLT GPU tooling
+is archived in [legacy/benchmark](legacy/benchmark/README.md).
+
 ## Data preprocessing
 
 The [data pipeline](docs/data/README.md) lives in `src/qwenpt/data` and is installed with the main `qwenpt` package. It downloads and normalizes datasets, filters tasks, and exports SFT/RL Parquet. Prepared SFT JSON, JSONL and Parquet can also be imported directly. See the [format contract](docs/data/data_format.md) and [release notes](docs/data/CHANGELOG.md).

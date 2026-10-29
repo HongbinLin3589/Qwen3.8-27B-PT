@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from qwenpt.eval import summarize as module
+from legacy.benchmark import summarize as module
 
 
 def _write_jsonl(path, rows):

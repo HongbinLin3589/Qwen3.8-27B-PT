@@ -6,7 +6,7 @@ import subprocess
 
 import pytest
 
-from qwenpt.eval import monitor
+from legacy.benchmark import monitor
 
 
 def _sample(index=0):
@@ -123,7 +123,7 @@ def test_fatal_log_scan_ignores_informational_strings_and_old_attempts(tmp_path)
 
 def test_frozen_monitor_source_uses_project_logs_from_run_path(suite, monkeypatch):
     root, submission, jobs = suite
-    monkeypatch.setattr(monitor, "__file__", str(root / "monitor_source/src/qwenpt/eval/monitor.py"))
+    monkeypatch.setattr(monitor, "__file__", str(root / "monitor_source/legacy/benchmark/monitor.py"))
     paths = []
     def evidence(job_id, log_dir):
         paths.append(log_dir)

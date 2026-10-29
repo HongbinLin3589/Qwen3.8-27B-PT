@@ -5,6 +5,7 @@ __pycache__/
 
 # Virtual environments
 .venv/
+.venv-eval/
 venv/
 env/
 ENV/
@@ -47,7 +48,16 @@ tests/train/**
 # (Junbin)
 /docs/*
 !/docs/data/
+!/docs/eval/
 AGENTS.md
+
+# Local benchmark credentials and generated runs.
+.env
+.env.*
+!.env.example
+!/configs/eval/.env.example
+/runs/eval/
+/.eval-tools/
 
 # Generated data-pipeline outputs; curated datasets remain versioned.
 /data/pipeline/

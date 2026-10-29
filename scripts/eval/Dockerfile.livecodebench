@@ -1,0 +1,5 @@
+# Build once, then use `docker image inspect --format '{{.Id}}' qwenpt-lcb`
+# as LCB_SANDBOX_IMAGE. No model credentials enter this image/container.
+FROM python:3.12-slim
+RUN pip install --no-cache-dir numpy==2.2.6 tqdm==4.67.1
+WORKDIR /tmp

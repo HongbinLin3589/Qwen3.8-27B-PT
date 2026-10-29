@@ -12,6 +12,8 @@ from pathlib import Path
 import sys
 from typing import Any
 
+from qwenpt.train.utils import bolt_math
+
 
 BENCHMARKS = ("gpqa_diamond", "aime2024", "aime2025", "aime2026")
 SCORE_FIELDS = ("predicted", "correct", "thinking_complete", "format_error")
@@ -78,7 +80,7 @@ def _manifest(args: argparse.Namespace, tokenizer: Any) -> dict[str, Any]:
         },
         "code_sha256": {
             **{name: _sha256(module_dir / name) for name in ("run_benchmark.py", "scoring.py")},
-            "bolt_math.py": _sha256(module_dir.parent / "train" / "utils" / "bolt_math.py"),
+            "bolt_math.py": _sha256(Path(bolt_math.__file__)),
         },
         "chat_template_sha256": hashlib.sha256(tokenizer.chat_template.encode()).hexdigest(),
         "runtime": {
@@ -161,7 +163,7 @@ def _validate_groups(
     groups: list[dict[str, Any]], questions: list[dict[str, Any]],
     tokenized: dict[str, list[int]], args: argparse.Namespace, fingerprint: str,
 ) -> set[str]:
-    from qwenpt.eval.scoring import score_completion
+    from legacy.benchmark.scoring import score_completion
 
     expected = {row["question_id"]: row for row in questions}
     done: set[str] = set()
@@ -202,7 +204,7 @@ def _validate_groups(
 
 def _run_locked(args: argparse.Namespace) -> None:
     from transformers import AutoTokenizer
-    from qwenpt.eval.scoring import score_completion
+    from legacy.benchmark.scoring import score_completion
 
     questions = _load_questions(args)
     args.model = Path(args.model).expanduser().resolve()

@@ -1,0 +1,158 @@
+# Explicit profile required: core150; scenarios20 independent smoke; all170.
+# Full covers every item of the selected frozen profile (including native jobs).
+version: 1
+project: qwen38-general-v1
+requirements:
+  checked: '2026-10-29'
+  task_matrix: https://bcnaodifzwip.feishu.cn/wiki/PeYVw1Nboi6krBk0neYc6qGonJc
+  revision: 17
+  status: proposed-quotas-requiring-baseline-freeze
+model_revision_env: BENCHMARK_REVISION
+tasks:
+  ifbench:
+    kind: bank
+    profile: core
+    capability: instruction_following
+    subset_count: 50
+    full_count: 300
+    config: ../../data/processed/eval/general/ifbench.yaml
+  gpqa_diamond:
+    kind: bank
+    profile: core
+    capability: science_reasoning
+    subset_count: 30
+    full_count: 198
+    config: ../../data/processed/eval/general/gpqa_diamond.yaml
+  livecodebench:
+    kind: bank
+    profile: core
+    capability: code_execution
+    subset_count: 30
+    full_count: 175
+    config: ../../data/processed/eval/general/livecodebench.yaml
+  hmmt_feb_2026:
+    kind: bank
+    profile: core
+    capability: mathematical_reasoning
+    subset_count: 10
+    full_count: 33
+    config: ../../data/processed/eval/general/hmmt_feb_2026.yaml
+  apex_shortlist:
+    kind: bank
+    profile: core
+    capability: hard_mathematical_reasoning
+    subset_count: 10
+    full_count: 47
+    config: ../../data/processed/eval/general/apex_shortlist.yaml
+  terminal_bench_2_1:
+    kind: harness
+    profile: core
+    capability: terminal_agent
+    subset_count: 10
+    full_count: 89
+    settings:
+      engine: harbor
+      checkout: ../../.eval-tools/terminal-bench-2-1
+      revision: 7131e4375048a0e408a8fb404b5f499d726b695b
+      tasks_path: tasks
+      expected_count: 89
+      subset_count: 10
+      seed: 20261017
+      executable: harbor
+      engine_version: '0.25.0'
+      agent: terminus-2
+      attempts_subset: 1
+      attempts_full: 5
+      concurrency: 1
+      environment: docker
+  deepswe_1_1:
+    kind: harness
+    profile: core
+    capability: repository_agent
+    subset_count: 10
+    full_count: 113
+    settings:
+      engine: pier
+      checkout: ../../.eval-tools/deep-swe
+      revision: 0b9fabbb63b9104d678fe965e1632f2dd9eaa2ea
+      tasks_path: tasks
+      expected_count: 113
+      subset_count: 10
+      seed: 20261017
+      executable: pier
+      engine_version: '0.3.1'
+      agent: mini-swe-agent
+      agent_version: '2.4.6'
+      attempts_subset: 1
+      # Project comparison baseline; freeze a repeat protocol before final claims.
+      attempts_full: 1
+      concurrency: 1
+      environment: docker
+  webarena_verified:
+    kind: scenario
+    profile: scenarios
+    capability: browser_agent
+    subset_count: 5
+    full_count: 812
+    settings:
+      engine: webarena_verified
+      checkout: ../../.eval-tools/webarena-verified
+      revision: 6473f72db5dcefc97b5725b59e734504edc28a21
+      expected_count: 812
+      subset_count: 5
+      native_config_file: ../../.eval-tools/webarena-config.json
+      native_results_path: ../../runs/native/webarena
+      native_run_manifest_file: ../../runs/native/webarena/provenance.json
+  spreadsheetbench_verified:
+    kind: scenario
+    profile: scenarios
+    capability: spreadsheet_agent
+    subset_count: 5
+    full_count: 400
+    settings:
+      engine: spreadsheetbench_verified
+      checkout: ../../.eval-tools/SpreadsheetBench
+      revision: 49b73a94775fb489063f60ca1865e3a650079a79
+      tasks_path: ../../data/raw/eval/SpreadsheetBench-Verified/dataset.json
+      expected_count: 400
+      subset_count: 5
+      recalculation_backend: libreoffice
+      native_results_path: ../../runs/native/spreadsheet
+      native_run_manifest_file: ../../runs/native/spreadsheet/provenance.json
+  osworld_verified:
+    kind: scenario
+    profile: scenarios
+    capability: desktop_document_presentation
+    subset_count: 5
+    full_count: 117
+    settings:
+      engine: osworld_verified
+      checkout: ../../.eval-tools/OSWorld
+      revision: 044bc33901cb893808e3f91ebc9a17ed8e54b44c
+      expected_count: 117
+      subset_count: 5
+      domains: [libreoffice_calc, libreoffice_impress, libreoffice_writer]
+      provider_name: docker
+      observation_type: screenshot
+      action_space: pyautogui
+      max_steps: 50
+      max_tokens: 2048
+      temperature: 0
+      top_p: 0.95
+  androidworld:
+    kind: scenario
+    profile: scenarios
+    capability: mobile_agent
+    subset_count: 5
+    full_count: 116
+    settings:
+      engine: androidworld
+      checkout: ../../.eval-tools/android_world
+      revision: 55ddaf5edc6f6c25673aed343907d5b9dca66f84
+      expected_count: 116
+      subset_count: 5
+      # Change to the installed Android SDK adb path on the evaluation host.
+      adb_path: ../../.eval-tools/android-sdk/platform-tools/adb
+      console_port: 5554
+      max_tokens: 2048
+      temperature: 0

@@ -21,14 +21,25 @@ REQUIRED = {
 def load_project(path: str | Path) -> dict:
     import yaml
     path = Path(path).resolve()
-    config = yaml.safe_load(path.read_text(encoding="utf-8"))
+    try:
+        config = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        raise ValueError("Invalid project YAML syntax (content omitted)") from None
+    if not isinstance(config, dict):
+        raise ValueError("Project config must be an object")
     suite._no_secrets(config)
     if config.get("version") != 1 or not isinstance(config.get("tasks"), dict) or not config["tasks"]:
         raise ValueError("Project config requires version: 1 and nonempty tasks")
     if set(config) - {"version", "project", "requirements", "model_revision_env", "tasks"}:
         raise ValueError("Unknown project configuration field")
+    suite._name(config.get("project"), "project")
+    revision_env = config.get("model_revision_env", "BENCHMARK_REVISION")
+    if not isinstance(revision_env, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", revision_env):
+        raise ValueError("model_revision_env must be an environment-variable name")
     for name, task in config["tasks"].items():
         suite._name(name, "task")
+        if not isinstance(task, dict):
+            raise ValueError("Each project task must be an object")
         if task.get("kind") not in {"bank", "harness", "scenario"} or task.get("profile") not in {"core", "scenarios"}:
             raise ValueError("Each task must declare its kind and core/scenarios profile")
         if not isinstance(task.get("capability"), str):
@@ -41,9 +52,13 @@ def load_project(path: str | Path) -> dict:
             if (task["kind"], task["profile"]) != REQUIRED[name]:
                 raise ValueError("Required capability changed kind/profile; do not replace native tasks with chat grading")
         if task["kind"] == "bank":
+            if not isinstance(task.get("config"), str) or not task["config"].strip():
+                raise ValueError("Bank task requires a configuration path")
             task["config"] = str((path.parent / task["config"]).resolve())
         else:
             settings = task.get("settings", {})
+            if not isinstance(settings, dict):
+                raise ValueError("Native task settings must be an object")
             if settings.get("expected_count") != task["full_count"] or settings.get("subset_count") != task["subset_count"]:
                 raise ValueError("Native task settings must match the registered subset/full counts")
             settings["id"] = name
@@ -143,6 +158,7 @@ def execute_project(config: dict, command: str, split: str, output: str | Path, 
                     result = suite.plan(bank, split, target)
                     result = {"complete": True, "status": "planned", "selection": result}
                     if command == "doctor":
+                        result["generation"] = suite.preflight_generation(bank, backend=backend)
                         result["graders"] = suite.preflight_scorers(bank)
                 elif command == "run":
                     suite.preflight_scorers(bank)
@@ -187,10 +203,12 @@ def execute_project(config: dict, command: str, split: str, output: str | Path, 
             report["tasks"][name] = {"capability": task["capability"], **_error(error)}
     report["complete"] = not missing_required and all(item.get("complete") is True for item in report["tasks"].values())
     report["profile_coverage_complete"] = report["complete"] and not report["omitted_profile_tasks"]
+    # score does not select a generation backend. Preserve the provenance of
+    # cached predictions even when the caller leaves --backend at its default.
+    report["is_mock"] = (backend == "mock" or any(item.get("is_mock") is True for item in report["tasks"].values()))
     report["all_required_complete"] = (command == "score" and split == "full" and profile == "all"
                                        and config["project"] == "qwen38-general-v1" and not missing_required
-                                       and report["profile_coverage_complete"] and backend != "mock"
-                                       and not any(item.get("is_mock") for item in report["tasks"].values()))
+                                       and report["profile_coverage_complete"] and not report["is_mock"])
     # Different capability metrics are kept separate; no misleading pooled score.
     suite.write_json(output / f"project_{command}.json", report)
     return report

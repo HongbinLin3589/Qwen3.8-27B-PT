@@ -117,6 +117,42 @@ def _content_text(content) -> str:
     raise APIError("API response is missing assistant text")
 
 
+def normalize_parameters(parameters: dict) -> dict:
+    """Translate SDK-style extra_body into the actual HTTP JSON fields.
+
+    This is also used before per-sample seed derivation, so a nested seed cannot
+    bypass that policy. Ambiguous duplicates and transport/routing overrides
+    are rejected rather than silently choosing one configuration.
+    """
+    if not isinstance(parameters, dict):
+        raise ValueError("parameters must be a mapping")
+    result = dict(parameters)
+    extra = result.pop("extra_body", None)
+    if extra is not None:
+        if not isinstance(extra, dict):
+            raise ValueError("extra_body must be a mapping")
+        if set(result).intersection(extra):
+            raise ValueError("extra_body duplicates a top-level generation parameter")
+        result.update(extra)
+    if any(not isinstance(key, str) for key in result):
+        raise ValueError("Generation parameter names must be strings")
+    if any(key in result for key in (
+        "model", "messages", "stream", "tools", "tool_choice", "functions", "function_call",
+        "api_key", "api-key", "apikey", "authorization", "headers", "base_url", "extra_headers",
+        "extra_query", "extra_body", "timeout", "retries",
+    )):
+        raise ValueError("parameters cannot override routing, credentials, transport, streaming or tools")
+    if "n" in result and (type(result["n"]) is not int or result["n"] != 1):
+        raise ValueError("Only n=1 is supported; repeat requests explicitly")
+    if "max_tokens" in result and "max_completion_tokens" in result:
+        raise ValueError("Set only one of max_tokens or max_completion_tokens")
+    if result.get("seed") is None:
+        result.pop("seed", None)
+    elif type(result["seed"]) is not int:
+        raise ValueError("seed must be an integer or null")
+    return result
+
+
 def _parse_response(payload: object) -> dict:
     if not isinstance(payload, dict):
         raise APIError("API response must be an object")
@@ -132,19 +168,27 @@ def _parse_response(payload: object) -> dict:
     }:
         raise APIError("Single-turn API evaluation does not support tool calls; use an official harness")
     finish_reason = choice.get("finish_reason")
+    if finish_reason not in {"stop", "length", "content_filter"}:
+        raise APIError("API response has an unsupported or missing finish reason")
+    refusal = message.get("refusal")
+    if refusal is not None and not isinstance(refusal, str):
+        raise APIError("API response has invalid refusal metadata")
     # A valid length-limited attempt can exhaust its budget in reasoning and
-    # produce no final content. Preserve it as a model failure, not an API retry.
+    # produce no final content. Explicit refusals and filtered responses are
+    # likewise completed model outcomes, not missing network responses.
     content = message.get("content")
-    text = "" if content is None and finish_reason == "length" else _content_text(content)
+    text = "" if content is None and (finish_reason in {"length", "content_filter"} or refusal) else _content_text(content)
+    if not text.strip() and refusal:
+        # A refusal can itself be the expected answer in safety/rubric tasks.
+        # Preserve it as candidate text while retaining explicit provenance.
+        text = refusal
     reasoning = message.get("reasoning_content", message.get("reasoning", ""))
     if reasoning is None:
         reasoning = ""
     if not isinstance(reasoning, str):
         raise APIError("API response has invalid reasoning content")
-    if not text.strip() and finish_reason != "length":
+    if not text.strip() and finish_reason not in {"length", "content_filter"} and not refusal:
         raise APIError("API response has no final assistant text")
-    if finish_reason not in {"stop", "length", "content_filter"}:
-        raise APIError("API response has an unsupported or missing finish reason")
     usage = payload.get("usage") or {}
     if not isinstance(usage, dict):
         raise APIError("API response has invalid usage metadata")
@@ -158,8 +202,12 @@ def _parse_response(payload: object) -> dict:
     response_model = payload.get("model")
     if response_model is not None and not isinstance(response_model, str):
         raise APIError("API response has invalid model metadata")
+    fingerprint = payload.get("system_fingerprint")
+    if fingerprint is not None and not isinstance(fingerprint, str):
+        raise APIError("API response has invalid system fingerprint")
     return {"text": text, "reasoning": reasoning, "finish_reason": finish_reason,
-            "usage": counters(usage), "response_model": response_model}
+            "usage": counters(usage), "response_model": response_model,
+            "refusal": refusal, "system_fingerprint": fingerprint}
 
 
 class ChatClient:
@@ -189,17 +237,7 @@ class ChatClient:
         if any(message.get("role") in {"tool", "function"} or message.get("tool_calls")
                or message.get("function_call") for message in messages):
             raise ValueError("Tool conversation history requires an agent harness")
-        if not isinstance(parameters, dict):
-            raise ValueError("parameters must be a mapping")
-        if any(key in parameters for key in (
-            "model", "messages", "stream", "tools", "tool_choice", "functions", "function_call",
-            "api_key", "base_url", "extra_headers",
-        )):
-            raise ValueError("parameters cannot override routing, credentials, streaming or tools")
-        if parameters.get("n", 1) != 1 or isinstance(parameters.get("n", 1), bool):
-            raise ValueError("Only n=1 is supported; repeat requests explicitly")
-        if "max_tokens" in parameters and "max_completion_tokens" in parameters:
-            raise ValueError("Set only one of max_tokens or max_completion_tokens")
+        parameters = normalize_parameters(parameters)
         endpoint = resolve_endpoint(self._config)
         url = endpoint["base_url"]
         if not url.endswith("/chat/completions"):

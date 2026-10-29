@@ -14,7 +14,8 @@ def fixture_project(tmp_path, *, missing=False):
     bank.write_text("".join(json.dumps(row) + "\n" for row in rows))
     config = {"version": 1, "suite": "science", "bank": "science.jsonl",
               "dataset": {"name": "fixture", "revision": "fixture-v1", "split": "test", "expected_counts": {"science": 4}},
-              "model": {"revision": "fixture-checkpoint"}, "generation": {}, "samples": 1,
+              "model": {"revision": "fixture-checkpoint", "base_url": "http://localhost:8000/v1",
+                        "model": "fixture-model", "api_key_required": False}, "generation": {}, "samples": 1,
               "subset": {"seed": 42, "counts": {"science": 2}},
               "benchmarks": {"science": {"scorer": {"type": "multiple_choice"}}}}
     (tmp_path / "science.yaml").write_text(yaml.safe_dump(config))
@@ -48,6 +49,7 @@ def test_project_non_math_end_to_end_and_mock_never_certifies_model(tmp_path, sp
     scores = execute_project(config, "score", split, output, profile="all", model_revision="checkpoint-7")
     assert scores["complete"]
     assert scores["tasks"]["science"]["benchmarks"]["science"]["final_mean_score"] == 1
+    assert scores["is_mock"] is True
     assert not scores["all_required_complete"]
 
 
@@ -61,6 +63,49 @@ def test_missing_task_stays_visible_and_prevents_any_generation(tmp_path, monkey
     assert not result["complete"]
     assert set(result["tasks"]) == {"science", "code"}
     assert result["tasks"]["code"]["status"] == "blocked"
+
+
+@pytest.mark.parametrize("invalid", ["key", "retry", "generation"])
+def test_invalid_later_bank_prevents_earlier_api_calls(tmp_path, monkeypatch, invalid):
+    config = fixture_project(tmp_path)
+    bank = yaml.safe_load((tmp_path / "science.yaml").read_text())
+    rows = [json.loads(line) for line in (tmp_path / "science.jsonl").read_text().splitlines()]
+    for row in rows:
+        row["benchmark"] = "second"
+    (tmp_path / "second.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+    bank.update(suite="second", bank="second.jsonl")
+    bank["dataset"]["expected_counts"] = {"second": 4}
+    bank["subset"]["counts"] = {"second": 2}
+    bank["benchmarks"] = {"second": bank["benchmarks"]["science"]}
+    if invalid == "key":
+        monkeypatch.delenv("COMPAT_MISSING_API_KEY", raising=False)
+        bank["model"].update(api_key_required=True, api_key_env="COMPAT_MISSING_API_KEY")
+    elif invalid == "retry":
+        bank["model"]["retries"] = -1
+    else:
+        bank["generation"] = {"stream": True}
+    (tmp_path / "second.yaml").write_text(yaml.safe_dump(bank))
+    config["tasks"]["second"] = {"kind": "bank", "profile": "core", "capability": "second",
+                                   "subset_count": 2, "full_count": 4, "config": str(tmp_path / "second.yaml")}
+    def forbidden(*args, **kwargs):
+        pytest.fail("Model generation started before validating the later task")
+    monkeypatch.setattr("qwenpt.eval.project.suite.run", forbidden)
+    result = execute_project(config, "run", "subset", tmp_path / "out", profile="core", model_revision="checkpoint-7")
+    assert not result["complete"]
+    assert result["status"] == "preflight_failed"
+    assert result["tasks"]["science"]["complete"]
+    assert result["tasks"]["second"]["status"] == "blocked"
+
+
+@pytest.mark.parametrize("content", ["", "[]", "project: [\npassword: secret-marker"])
+def test_invalid_project_yaml_has_safe_diagnostics(tmp_path, capsys, content):
+    from qwenpt.eval.cli import main
+    path = tmp_path / "bad.yaml"
+    path.write_text(content)
+    assert main(["project", "list", "--config", str(path)]) == 2
+    error = json.loads(capsys.readouterr().err)
+    assert error["error"] == "ValueError"
+    assert "secret-marker" not in error["message"]
 
 
 def test_model_or_split_change_requires_new_directory(tmp_path):

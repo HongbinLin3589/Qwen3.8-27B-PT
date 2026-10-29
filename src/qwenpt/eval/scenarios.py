@@ -32,6 +32,10 @@ import time
 from typing import Any
 from urllib.parse import urlsplit
 
+if not __package__:
+    # Native workers are launched by absolute script path in their own venv.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 ENGINES = {"webarena_verified", "spreadsheetbench_verified", "osworld_verified", "androidworld"}
 ARTIFACT_ENGINES = {"webarena_verified", "spreadsheetbench_verified"}
 OFFICE_DOMAINS = ("libreoffice_calc", "libreoffice_impress", "libreoffice_writer")
@@ -73,6 +77,25 @@ def _positive(value: Any, label: str) -> int:
 def _validate_task(task: dict) -> None:
     if task.get("engine") not in ENGINES:
         raise ValueError("Unknown native scenario engine")
+    common = {"id", "engine", "checkout", "revision", "tasks_path", "expected_count", "subset_count", "seed",
+              "subset_ids_file", "executable", "model_revision", "model_env", "base_url_env", "api_key_env",
+              "api_key_required", "attempts_subset", "attempts_full", "timeout", "api_timeout"}
+    engine_fields = {
+        "webarena_verified": {"native_config_file", "native_results_path", "native_run_manifest_file"},
+        "spreadsheetbench_verified": {"native_results_path", "native_run_manifest_file", "recalculation_backend", "soffice"},
+        "osworld_verified": {"domains", "provider_name", "vm_path", "observation_type", "action_space", "max_steps",
+                             "max_tokens", "temperature", "top_p"},
+        "androidworld": {"adb_path", "console_port", "max_tokens", "temperature"},
+    }
+    if type(task.get("seed", 42)) is not int:
+        raise ValueError("scenario.seed must be an integer")
+    for field in ("max_steps", "max_tokens", "console_port"):
+        if field in task:
+            _positive(task[field], field)
+    for field in ("timeout", "api_timeout"):
+        value = task.get(field, 120)
+        if type(value) not in {int, float} or not math.isfinite(value) or value <= 0:
+            raise ValueError(f"scenario.{field} must be positive and finite")
     _identifier(task.get("id", task["engine"]), "scenario id")
     if not re.fullmatch(r"[0-9a-f]{40}", str(task.get("revision", ""))):
         raise ValueError("scenario.revision must be the exact 40-character checkout commit")
@@ -94,12 +117,18 @@ def _validate_task(task: dict) -> None:
             for child in value:
                 inspect(child)
     inspect(task)
+    if set(task) - common - engine_fields[task["engine"]]:
+        raise ValueError("Unknown native scenario setting; it would not reach the official runner")
 
 
 def _checkout_errors(checkout: Path, revision: str) -> list[str]:
     if not checkout.is_dir():
         return ["Pinned native checkout is missing"]
     try:
+        root = subprocess.run(["git", "-C", str(checkout), "rev-parse", "--show-toplevel"],
+                              capture_output=True, text=True, timeout=15, check=True)
+        if Path(root.stdout.strip()).resolve() != checkout.resolve():
+            return ["Native checkout must be the repository root"]
         result = subprocess.run(["git", "-C", str(checkout), "rev-parse", "HEAD"],
                                 capture_output=True, text=True, timeout=15, check=True)
         if result.stdout.strip() != revision:
@@ -192,13 +221,28 @@ def _endpoint(task: dict) -> dict:
 
 
 def _resolved_endpoint(task: dict) -> dict:
+    from qwenpt.eval.api_backend import endpoint_metadata
     endpoint = _endpoint(task)
     result = {key: os.environ.get(endpoint[key + "_env"], "") for key in ("model", "base_url")}
     if result["base_url"]:
-        parsed = urlsplit(result["base_url"])
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
-            raise ValueError("Model base URL must be HTTP(S) without embedded credentials/query")
+        # Endpoint validation is shared with the single-turn client. Artifact
+        # scoring may omit a model service entirely, so preserve that case.
+        if result["model"]:
+            metadata = endpoint_metadata(endpoint)
+            result.update(model=metadata["model"], base_url=metadata["base_url"])
+        else:
+            from qwenpt.eval.api_backend import _safe_url
+            result["base_url"] = _safe_url(result["base_url"])
     return result
+
+
+def _adapter_files() -> dict:
+    return {name: _file_hash(Path(__file__).with_name(name)) for name in ("scenarios.py", "api_backend.py")}
+
+
+def _check_adapter(plan: dict) -> None:
+    if plan.get("adapter_files") != _adapter_files():
+        raise ValueError("Scenario adapter/transport changed; use a new output directory for this protocol")
 
 
 def _python(task: dict) -> str:
@@ -269,6 +313,7 @@ def prepare_scenario(task: dict, split: str, output: str | Path) -> dict:
             path = Path(task[field]).resolve()
             pinned_files[str(path)] = _file_hash(path)
     plan = {"id": task.get("id", engine), "engine": engine, "split": split,
+            "adapter_files": _adapter_files(),
             "revision": task["revision"], "model_revision": task["model_revision"],
             "task_ids": selected, "available_count": len(rows), "selected_count": len(selected),
             "inventory_path": str(source),
@@ -305,6 +350,12 @@ def prepare_scenario(task: dict, split: str, output: str | Path) -> dict:
                 plan["blockers"].append("Missing model environment variable: " + plan["endpoint"][key])
         if plan["endpoint"]["api_key_required"] and not os.environ.get(plan["endpoint"]["api_key_env"]):
             plan["blockers"].append("Missing API key environment variable: " + plan["endpoint"]["api_key_env"])
+        try:
+            from .api_backend import ChatClient, resolve_endpoint
+            resolve_endpoint(plan["endpoint"])
+            ChatClient(plan["endpoint"])
+        except (ValueError, TypeError):
+            plan["blockers"].append("Invalid model endpoint, API key or request timeout configuration")
     plan["ready"] = not plan["blockers"]
     plan["complete"] = False
     plan["status"] = "prepared" if plan["ready"] else "unavailable"
@@ -419,6 +470,7 @@ def score_scenario(task: dict, split: str, output: str | Path) -> dict:
     if not saved.is_file():
         raise ValueError("Prepare the scenario before importing/scoring results")
     plan = _read(saved)
+    _check_adapter(plan)
     if plan["split"] != split or plan["revision"] != task.get("revision") or plan["model_revision"] != task.get("model_revision"):
         raise ValueError("Scenario model/revision/split does not match the saved plan")
     if plan["task"] != task:
@@ -701,6 +753,7 @@ def _native_spreadsheet(plan: dict, attempt: int, destination: Path) -> list[dic
 
 def _native(plan_file: str, attempt: int) -> None:
     plan = _read(plan_file)
+    _check_adapter(plan)
     if not 0 <= attempt < plan["attempts"]:
         raise ValueError("Native attempt outside frozen plan")
     for file, expected in plan["pinned_files"].items():

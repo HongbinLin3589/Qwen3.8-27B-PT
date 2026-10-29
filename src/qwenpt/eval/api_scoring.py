@@ -15,7 +15,7 @@ from qwenpt.eval.api_backend import ChatClient
 from qwenpt.eval.scoring import last_boxed
 
 
-SCORER_VERSION = "api-scorer-v2"
+SCORER_VERSION = "api-scorer-v3"
 
 
 def final_answer_text(text: str) -> str:
@@ -68,6 +68,76 @@ def _choice(text: str, labels: list[str]) -> str | None:
     return value if value in labels else None
 
 
+def _judge_question(question: dict) -> tuple[object, list[dict]]:
+    """Keep image bytes in native vision blocks, not also in textual JSON."""
+    images = []
+    messages = []
+    for message in question.get("messages", []):
+        if not isinstance(message, dict):
+            raise ValueError("Judge question messages must be objects")
+        copy = dict(message)
+        if isinstance(message.get("content"), list):
+            parts = []
+            for part in message["content"]:
+                if isinstance(part, dict) and part.get("type") == "image_url":
+                    images.append(part)
+                    parts.append({"type": "text", "text": f"[Attached image {len(images)}]"})
+                else:
+                    parts.append(part)
+            copy["content"] = parts
+        messages.append(copy)
+    return question.get("question", question.get("prompt", messages)), images
+
+
+def _unique_json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Judge JSON contains duplicate keys")
+        result[key] = value
+    return result
+
+
+def completed_model_failure(question: dict, scorer: dict, reason: str) -> dict:
+    """Record a blocked model completion in its normal metric denominator.
+
+    API content filtering is a completed failed attempt, independent of any
+    partial text. Ordinary refusals instead pass through the configured scorer,
+    because refusing can be correct on safety or rubric tasks.
+    """
+    if reason != "content_filter":
+        raise ValueError("Unsupported completed model failure reason")
+    kind = scorer.get("type")
+    metrics = {"exact_match": "exact_match", "multiple_choice": "accuracy",
+               "math_equivalence": "math_equivalence", "livecodebench": "pass@1"}
+    if kind == "llm_judge":
+        mode = scorer.get("mode", "correctness")
+        if mode not in {"correctness", "rubric"}:
+            raise ValueError("Judge mode must be correctness or rubric")
+        metric = "judge_accuracy" if mode == "correctness" else "rubric_score"
+    elif kind == "ifbench":
+        mode = scorer.get("mode", "loose")
+        if mode not in {"strict", "loose"}:
+            raise ValueError("IFBench mode must be strict or loose")
+        metric = f"ifbench_prompt_{mode}_accuracy"
+    elif kind in metrics:
+        metric = metrics[kind]
+    else:
+        raise ValueError("Unsupported scorer type")
+    result = {"score": 0.0, "correct": None if metric == "rubric_score" else False,
+              "metric": metric, "predicted": "", "model_failure": reason}
+    if kind == "ifbench":
+        ids = question.get("metadata", {}).get("ifbench", {}).get("instruction_id_list")
+        if not isinstance(ids, list) or not ids or any(not isinstance(item, str) or not item for item in ids):
+            raise ValueError("IFBench row is missing its instruction constraint IDs")
+        result["ifbench"] = {"revision": scorer.get("revision"), "instruction_id_list": list(ids)}
+        for mode in ("strict", "loose"):
+            result["ifbench"][mode] = {"prompt_accuracy": 0.0, "instruction_correct": 0,
+                                      "instruction_total": len(ids), "instruction_accuracy": 0.0,
+                                      "follow_instruction_list": [False] * len(ids)}
+    return result
+
+
 def _grade_judge(question: dict, text: str, scorer: dict, judge: ChatClient | None) -> dict:
     if judge is None:
         raise ValueError("llm_judge requires a configured judge endpoint")
@@ -78,7 +148,7 @@ def _grade_judge(question: dict, text: str, scorer: dict, judge: ChatClient | No
     rubric = scorer.get("rubric", question.get("rubric"))
     if not isinstance(rubric, str) or not rubric.strip():
         raise ValueError("llm_judge requires an explicit, nonempty rubric")
-    question_text = question.get("question", question.get("prompt", question.get("messages")))
+    question_text, images = _judge_question(question)
     if not question_text:
         raise ValueError("llm_judge requires the question prompt or messages")
     parameters = scorer.get("judge_parameters", {})
@@ -114,10 +184,6 @@ def _grade_judge(question: dict, text: str, scorer: dict, judge: ChatClient | No
     if question.get("options") is not None:
         data["options"] = question["options"]
     judge_content = json.dumps(data, ensure_ascii=False, allow_nan=False)
-    images = [part for message in question.get("messages", [])
-              if isinstance(message, dict) and isinstance(message.get("content"), list)
-              for part in message["content"]
-              if isinstance(part, dict) and part.get("type") == "image_url"]
     if images:
         judge_content = [{"type": "text", "text": judge_content}, *images]
     response = judge.complete([
@@ -126,6 +192,8 @@ def _grade_judge(question: dict, text: str, scorer: dict, judge: ChatClient | No
     ], parameters)
     if not isinstance(response, dict) or response.get("finish_reason") != "stop":
         raise ValueError("Judge output is incomplete; no verdict recorded")
+    if response.get("refusal"):
+        raise ValueError("Judge refused the evaluation; no verdict recorded")
     raw_text = response.get("text")
     if not isinstance(raw_text, str):
         raise ValueError("Judge response is missing text; no verdict recorded")
@@ -135,7 +203,7 @@ def _grade_judge(question: dict, text: str, scorer: dict, judge: ChatClient | No
     if fence:
         raw_text = fence.group(1).strip()
     try:
-        verdict = json.loads(raw_text)
+        verdict = json.loads(raw_text, object_pairs_hook=_unique_json_object)
     except (ValueError, TypeError):
         raise ValueError("Judge did not return valid JSON; no verdict recorded") from None
     if not isinstance(verdict, dict) or set(verdict) != {"score", "reason"}:
@@ -151,7 +219,8 @@ def _grade_judge(question: dict, text: str, scorer: dict, judge: ChatClient | No
     return {"score": float(score), "correct": bool(score) if mode == "correctness" else None,
             "metric": "judge_accuracy" if mode == "correctness" else "rubric_score",
             "predicted": text, "judge_response": {"score": float(score), "reason": verdict["reason"],
-                "response_model": response.get("response_model"), "usage": response.get("usage", {})}}
+                "response_model": response.get("response_model"), "usage": response.get("usage", {}),
+                "system_fingerprint": response.get("system_fingerprint")}}
 
 
 def score_answer(question: dict, final_text: str, scorer: dict, judge: ChatClient | None = None) -> dict:

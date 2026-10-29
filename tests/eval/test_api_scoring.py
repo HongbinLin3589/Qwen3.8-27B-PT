@@ -6,7 +6,7 @@ import unittest
 from types import ModuleType
 from unittest.mock import Mock, patch
 
-from qwenpt.eval.api_scoring import final_answer_text, score_answer
+from qwenpt.eval.api_scoring import completed_model_failure, final_answer_text, score_answer
 
 
 class TestAPIScoring(unittest.TestCase):
@@ -55,6 +55,25 @@ class TestAPIScoring(unittest.TestCase):
         with self.assertRaises(ValueError):
             score_answer({"answer": "B"}, "B", {"type": "fake"})
 
+    def test_filtered_completions_keep_normal_metric_and_constraint_denominator(self):
+        question = {"metadata": {"ifbench": {"instruction_id_list": ["a", "b", "c"]}}}
+        for kind, metric in [("multiple_choice", "accuracy"), ("math_equivalence", "math_equivalence"),
+                             ("exact_match", "exact_match"), ("livecodebench", "pass@1"),
+                             ("ifbench", "ifbench_prompt_loose_accuracy"), ("llm_judge", "judge_accuracy")]:
+            grade = completed_model_failure(question, {"type": kind}, "content_filter")
+            self.assertEqual(grade["metric"], metric)
+            self.assertEqual(grade["score"], 0)
+            self.assertFalse(grade["correct"])
+        grade = completed_model_failure(question, {"type": "ifbench"}, "content_filter")
+        for mode in ("strict", "loose"):
+            self.assertEqual(grade["ifbench"][mode]["instruction_total"], 3)
+            self.assertEqual(grade["ifbench"][mode]["instruction_correct"], 0)
+        grade = completed_model_failure({}, {"type": "llm_judge", "mode": "rubric"}, "content_filter")
+        self.assertEqual(grade["metric"], "rubric_score")
+        self.assertIsNone(grade["correct"])
+        with self.assertRaises(ValueError):
+            completed_model_failure({}, {"type": "exact_match"}, "ordinary_refusal")
+
 
 class TestLLMJudge(unittest.TestCase):
     def setUp(self):
@@ -99,12 +118,19 @@ class TestLLMJudge(unittest.TestCase):
         bad = ['{}', '{"score":NaN,"reason":"x"}', '{"score":1.1,"reason":"x"}',
                '{"score":true,"reason":"x"}', '{"score":0.5,"reason":"x"}',
                '{"score":1,"reason":""}', '{"score":1,"reason":"ok","extra":1}',
-               '{"score":', '<think>{"score":1,"reason":"x"}']
+               '{"score":', '<think>{"score":1,"reason":"x"}',
+               '{"score":0,"score":1,"reason":"ambiguous"}']
         for text in bad:
             with self.subTest(text=text), self.assertRaises(ValueError):
                 score_answer(self.question, "42", self.scorer, self.judge(text))
         with self.assertRaisesRegex(ValueError, "incomplete"):
             score_answer(self.question, "42", self.scorer, self.judge(finish_reason="length"))
+
+    def test_judge_refusal_cannot_become_a_verdict_even_with_json_content(self):
+        judge = self.judge()
+        judge.complete.return_value["refusal"] = "Cannot evaluate this request."
+        with self.assertRaisesRegex(ValueError, "refused"):
+            score_answer(self.question, "42", self.scorer, judge)
 
     def test_structured_output_and_fenced_open_model_json(self):
         for structured in ["none", "json_object", "json_schema"]:
@@ -122,7 +148,12 @@ class TestLLMJudge(unittest.TestCase):
                     "answer": "42"}
         judge = self.judge()
         score_answer(question, "42", self.scorer, judge)
-        self.assertEqual(judge.complete.call_args.args[0][1]["content"][1], image)
+        content = judge.complete.call_args.args[0][1]["content"]
+        self.assertEqual(content[1], image)
+        self.assertNotIn("base64", content[0]["text"])
+        self.assertNotIn("AA==", content[0]["text"])
+        self.assertIn("Attached image 1", content[0]["text"])
+        self.assertEqual(question["messages"][0]["content"][1], image)
 
 
 if __name__ == "__main__":

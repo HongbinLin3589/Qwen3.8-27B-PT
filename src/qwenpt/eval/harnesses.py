@@ -61,6 +61,7 @@ _FIELDS = {
     "seed", "subset_ids_file", "executable", "engine_version", "agent", "agent_version",
     "model_env", "base_url_env", "api_key_env", "model_revision", "attempts_full",
     "attempts_subset", "concurrency", "environment", "timeout_multiplier", "reward_key", "stratify_by",
+    "api_key_required",
 }
 
 
@@ -134,6 +135,8 @@ def prepare_harness(task: dict, split: str, output: str | Path) -> dict:
     if not isinstance(task.get("checkout"), str) or not task["checkout"].strip():
         raise ValueError("Harness checkout is required")
     checkout = Path(task["checkout"]).expanduser().resolve()
+    if Path(_git(checkout, "rev-parse", "--show-toplevel")).resolve() != checkout:
+        raise ValueError("Harness checkout must be the repository root")
     if _git(checkout, "rev-parse", "HEAD") != revision:
         raise ValueError("Harness dataset HEAD does not match the frozen revision")
     relative = Path(task.get("tasks_path", "tasks"))
@@ -216,6 +219,8 @@ def prepare_harness(task: dict, split: str, output: str | Path) -> dict:
     if any(not isinstance(v, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v)
            for v in env_names.values()):
         raise ValueError("Endpoint fields must name environment variables")
+    if type(task.get("api_key_required", True)) is not bool:
+        raise ValueError("api_key_required must be boolean")
     if "agent_version" in task:
         _frozen(task["agent_version"], "agent_version")
     elif engine == "pier":
@@ -225,6 +230,8 @@ def prepare_harness(task: dict, split: str, output: str | Path) -> dict:
                   agent=agent, environment=environment, concurrency=_positive(task.get("concurrency", 1), "concurrency"),
                   timeout_multiplier=multiplier, **env_names)
     manifest = {"version": 1, "benchmark": identifier, "split": split,
+                "adapter_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                "model_api_format": "openai_chat_completions",
                 "engine": engine, "engine_version": version, "agent": agent,
                 "dataset_revision": revision, "model_revision": task["model_revision"],
                 "dataset_count": len(task_paths), "selected_count": len(selected),
@@ -239,7 +246,7 @@ def prepare_harness(task: dict, split: str, output: str | Path) -> dict:
 
 
 def preflight_harness(task: dict, split: str, output: str | Path, *, check_environment: bool = True) -> dict:
-    """Check source, installed runner and Docker without API keys or model calls."""
+    """Check source, endpoint configuration, runner and Docker without model calls."""
     manifest = prepare_harness(task, split, output)
     checks = [{"component": "dataset", "ready": True, "revision": manifest["dataset_revision"]}]
     executable = task.get("executable", manifest["engine"])
@@ -269,28 +276,41 @@ def preflight_harness(task: dict, split: str, output: str | Path, *, check_envir
         else:
             checks.append({"component": "environment", "ready": False,
                            "provider": manifest["config"]["environment"], "reason": "cloud_credentials_and_capacity_require_separate_validation"})
+    try:
+        _runtime(manifest)
+        checks.append({"component": "endpoint_configuration", "ready": True})
+    except (ValueError, TypeError):
+        checks.append({"component": "endpoint_configuration", "ready": False,
+                       "reason": "model_base_url_or_key_configuration_invalid"})
     return {"benchmark": manifest["benchmark"], "split": split, "ready": all(item["ready"] for item in checks),
-            "checks": checks, "model_api_checked": False, "manifest_fingerprint": manifest["fingerprint"]}
+            "checks": checks, "model_api_checked": False, "endpoint_config_checked": True,
+            "manifest_fingerprint": manifest["fingerprint"]}
 
 
 def _runtime(manifest: dict) -> tuple[dict, dict]:
+    from .api_backend import resolve_endpoint
     config = manifest["config"]
-    model = os.environ.get(config["model_env"], "").strip()
-    base = os.environ.get(config["base_url_env"], "").strip().rstrip("/")
-    key = os.environ.get(config["api_key_env"], "")
-    if not model or not base or not key:
-        raise ValueError("Set the harness model, API base URL and API key environment variables first")
-    parsed = urlsplit(base)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise ValueError("Harness API URL must be HTTP(S) without credentials, query or fragment")
+    endpoint = resolve_endpoint({key: config[key] for key in ("model_env", "base_url_env", "api_key_env")}
+                                | {"api_key_required": config.get("api_key_required", True)})
+    model, base, key = endpoint["model"], endpoint["base_url"], endpoint["api_key"]
+    # The portable client also accepts the full route; native SDKs append it.
+    # Normalize the shared setting to an API root before handing it to them.
+    if base.endswith("/chat/completions"):
+        base = base.removesuffix("/chat/completions")
     if any(c.isspace() for c in model) or model.startswith("-"):
         raise ValueError("Harness model must be a nonempty API model ID without whitespace")
     model = model if model.startswith("openai/") else "openai/" + model
     # Pier mini-swe-agent forwards these host variables into its sandbox. Harbor
     # Terminus receives base_url / model_api_key_name in AgentConfig below.
+    # Pier's OpenAI library requires a key string even for unauthenticated local
+    # servers. The explicit opt-out uses a nonsecret framework placeholder.
     env = dict(os.environ)
-    env.update(OPENAI_API_KEY=key, OPENAI_API_BASE=base, OPENAI_BASE_URL=base)
+    framework_key = key or "EMPTY"
+    env.update(OPENAI_API_KEY=framework_key, OPENAI_API_BASE=base, OPENAI_BASE_URL=base)
+    env[config["api_key_env"]] = framework_key
     runtime = {"model": model, "base_url": base, "model_revision": manifest["model_revision"],
+               "model_api_format": "openai_chat_completions",
+               "authentication": "environment_key" if key else "framework_placeholder",
                "manifest_fingerprint": manifest["fingerprint"]}
     return runtime, env
 
@@ -303,7 +323,12 @@ def native_job_config(manifest: dict, output: str | Path, runtime: dict) -> dict
     if config.get("agent_version"):
         agent["kwargs"]["version"] = config["agent_version"]
     if manifest["engine"] == "harbor":
-        agent.update(base_url=runtime["base_url"], model_api_key_name=config["api_key_env"])
+        agent.update(base_url=runtime["base_url"], model_api_key_name=config["api_key_env"],
+                     model_api_format="openai_chat_completions")
+    else:
+        # Pier 0.3.1's auto mode chooses the Responses API for openai/* models.
+        # vLLM/SGLang services in this interface expose Chat Completions.
+        agent["kwargs"]["model_class"] = "litellm"
     job = {"job_name": "frozen", "jobs_dir": str(output / "jobs"),
            "n_attempts": manifest["attempts_per_task"],
            "n_concurrent_trials": config["concurrency"],
@@ -360,11 +385,15 @@ def run_harness(task: dict, split: str, output: str | Path) -> dict:
             raise RuntimeError("Native job already exists and is incomplete; preserve its logs and use a new output directory for a deliberate retry (native resume is not imported by this version)")
         argv = [executable, "run", "--config", str(output / "native_job.json")]
         _json(output / "invocation.json", {"argv": argv, "manifest_fingerprint": manifest["fingerprint"]})
+        _json(output / "exit.json", {"returncode": None, "status": "running",
+                                      "manifest_fingerprint": manifest["fingerprint"]})
         result = subprocess.run(argv, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
         # Keep console diagnostics without leaking the supplied inference key.
-        secret = env["OPENAI_API_KEY"]
         for name, content in (("stdout.log", result.stdout), ("stderr.log", result.stderr)):
-            (output / name).write_text(content.replace(secret, "[REDACTED]"), encoding="utf-8")
+            for variable, secret in env.items():
+                if secret and secret != "EMPTY" and any(word in variable.upper() for word in ("KEY", "TOKEN", "SECRET", "PASSWORD")):
+                    content = content.replace(secret, "[REDACTED]")
+            (output / name).write_text(content, encoding="utf-8")
         _json(output / "exit.json", {"returncode": result.returncode, "manifest_fingerprint": manifest["fingerprint"]})
         summary = score_harness(task, split, output)
         if result.returncode:
@@ -423,7 +452,8 @@ def score_harness(task: dict, split: str, output: str | Path) -> dict:
     complete = scored == expected and all(counts[name] == attempts for name in manifest["task_ids"])
     exit_path = output / "exit.json"
     exit_receipt = json.loads(exit_path.read_text(encoding="utf-8")) if exit_path.exists() else None
-    if exit_receipt and (exit_receipt.get("manifest_fingerprint") != manifest["fingerprint"] or exit_receipt.get("returncode") != 0):
+    if (not exit_receipt or exit_receipt.get("manifest_fingerprint") != manifest["fingerprint"]
+            or type(exit_receipt.get("returncode")) is not int or exit_receipt["returncode"] != 0):
         complete = False
     summary = {"benchmark": manifest["benchmark"], "split": split,
                "metric": "native_verifier_avg_success", "complete": complete,

@@ -11,7 +11,7 @@ import random
 import re
 import subprocess
 
-from .suite import bind, digest, file_digest, write_json
+from .suite import _name, _no_secrets, _positive, bind, digest, file_digest, write_json
 
 
 def read_rows(path: Path) -> list[dict]:
@@ -73,9 +73,15 @@ def _checkout(path: Path, url: str, revision: str, download: bool):
 
 def _source_files(source: dict, base: Path, download: bool) -> tuple[list[dict], list[dict]]:
     revision = source["revision"]
-    if not re.fullmatch(r"[a-f0-9]{40}", revision):
+    if not isinstance(revision, str) or not re.fullmatch(r"[a-f0-9]{40}", revision):
         raise ValueError("Dataset revision must be a full Hugging Face commit")
+    files = source.get("files")
+    if (not isinstance(files, list) or not files or any(not isinstance(name, str) or not name.strip() for name in files)
+            or len(files) != len(set(files))):
+        raise ValueError("Source files must be a nonempty list of unique file names")
     local = source.get("local_files", [])
+    if not isinstance(local, list) or any(not isinstance(name, str) or not name.strip() for name in local):
+        raise ValueError("Source local_files must be a list of file paths")
     paths = [(base / name).resolve() for name in local]
     if download and not paths:
         try:
@@ -91,8 +97,11 @@ def _source_files(source: dict, base: Path, download: bool) -> tuple[list[dict],
     rows, provenance = [], []
     for name, path in zip(source["files"], paths):
         expected = source.get("file_hashes", {}).get(name)
-        if not expected or set(expected) - {"sha256", "git_blob"}:
+        if not isinstance(expected, dict) or not expected or set(expected) - {"sha256", "git_blob"}:
             raise ValueError("Each source file requires its upstream sha256 or Git blob hash")
+        if any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{%d}" % (64 if key == "sha256" else 40), value)
+               for key, value in expected.items()):
+            raise ValueError("Source file hash must be a complete lowercase hexadecimal digest")
         raw = path.read_bytes()
         actual_sha256 = hashlib.sha256(raw).hexdigest()
         actual_blob = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
@@ -107,9 +116,17 @@ def prepare_general(config_path: str, output: str, *, download: bool = False,
                     tasks: list[str] | None = None, model_revision: str = "FILL_CHECKPOINT_REVISION") -> dict:
     import yaml
     config_path = Path(config_path).resolve()
-    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    try:
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        raise ValueError("Invalid source YAML syntax (content omitted)") from None
+    if not isinstance(config, dict):
+        raise ValueError("Source config must be an object")
+    _no_secrets(config)
     if config.get("version") != 1 or not isinstance(config.get("sources"), dict):
         raise ValueError("Expected version: 1 and a sources mapping")
+    if type(config.get("seed", 20261017)) is not int:
+        raise ValueError("Source subset seed must be an integer")
     selected = tasks or list(config["sources"])
     if not selected or len(selected) != len(set(selected)) or set(selected) - set(config["sources"]):
         raise ValueError("Unknown or duplicate preparation task")
@@ -118,7 +135,12 @@ def prepare_general(config_path: str, output: str, *, download: bool = False,
     report = {"complete": True, "tasks": {}}
     for task in selected:
         try:
+            _name(task, "source task")
             source = config["sources"][task]
+            if not isinstance(source, dict) or source.get("kind") not in {"ifbench", "gpqa", "matharena", "livecodebench"}:
+                raise ValueError("Each source must declare a supported preparation kind")
+            if _positive(source.get("subset_count"), "subset_count") > _positive(source.get("expected_count"), "expected_count"):
+                raise ValueError("Source subset_count exceeds its full expected_count")
             if source["kind"] == "ifbench":
                 from .ifbench import prepare_ifbench
                 checkout = (base / source["checkout"]).resolve()
@@ -138,7 +160,7 @@ def prepare_general(config_path: str, output: str, *, download: bool = False,
                     rows = normalize_matharena(raw, task)
                     scorer = {"type": "math_equivalence"}
                 elif source["kind"] == "livecodebench":
-                    from .livecodebench import normalize_livecodebench
+                    from .livecodebench import normalize_livecodebench, validate_checkout
                     start, end = source.get("start_date"), source.get("end_date")
                     for date in (start, end):
                         if date:
@@ -150,11 +172,14 @@ def prepare_general(config_path: str, output: str, *, download: bool = False,
                     rows = normalize_livecodebench(raw)
                     checkout = (base / source["grader_checkout"]).resolve()
                     _checkout(checkout, "https://github.com/LiveCodeBench/LiveCodeBench.git", source["grader_revision"], download)
+                    validate_checkout(str(checkout), source["grader_revision"])
                     scorer = {"type": "livecodebench", "checkout": str(checkout),
                               "revision": source["grader_revision"], "image_env": "LCB_SANDBOX_IMAGE", "timeout": 6}
                     provenance.update(version_tag=source["version_tag"], start_date=start, end_date=end)
                 else:
                     raise ValueError("Unknown dataset preparation kind")
+            for row in rows:
+                row["benchmark"] = task
             ids = [row["question_id"] for row in rows]
             if len(ids) != len(set(ids)) or len(rows) != source["expected_count"]:
                 raise ValueError(f"Invalid {task} coverage: {len(rows)} rows; expected {source['expected_count']}")

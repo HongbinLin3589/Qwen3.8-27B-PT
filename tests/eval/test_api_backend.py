@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
 
-from qwenpt.eval.api_backend import APIError, ChatClient, endpoint_metadata, resolve_endpoint
+from qwenpt.eval.api_backend import APIError, ChatClient, endpoint_metadata, normalize_parameters, resolve_endpoint
 
 
 CONFIG = {"base_url": "http://localhost:8000/v1", "model": "local-candidate",
@@ -80,6 +80,56 @@ class TestChatClient(unittest.TestCase):
         self.assertEqual(result["reasoning"], "private reasoning")
         self.assertEqual(result["usage"], {"completion_tokens": 4})
 
+    def test_extra_body_is_sent_as_actual_server_fields_without_mutation(self):
+        parameters = {"max_tokens": 100, "extra_body": {"top_k": 20, "seed": 42,
+                      "chat_template_kwargs": {"enable_thinking": False}}}
+        with patch("qwenpt.eval.api_backend._open_request", return_value=response()) as request:
+            ChatClient(CONFIG).complete([{"role": "user", "content": "q"}], parameters)
+        body = json.loads(request.call_args.args[0].data)
+        self.assertNotIn("extra_body", body)
+        self.assertEqual(body["top_k"], 20)
+        self.assertEqual(body["seed"], 42)
+        self.assertEqual(body["chat_template_kwargs"], {"enable_thinking": False})
+        self.assertIn("extra_body", parameters)
+        self.assertNotIn("seed", parameters)
+
+    def test_extra_body_cannot_bypass_credential_routing_or_conflict_validation(self):
+        cases = [{"seed": 1, "extra_body": {"seed": 2}}, {"extra_body": []},
+                 {"extra_body": {"model": "wrong"}}, {"extra_body": {"api_key": SECRET}},
+                 {"extra_body": {"extra_body": {"seed": 4}}},
+                 {"max_tokens": 2, "extra_body": {"max_completion_tokens": 4}},
+                 {"extra_body": {"n": 2}}, {"n": 1.0}, {"seed": True}, {"seed": 1.5}]
+        for parameters in cases:
+            with self.subTest(parameters=parameters), patch("qwenpt.eval.api_backend._open_request") as request:
+                with self.assertRaises(ValueError) as error:
+                    ChatClient(CONFIG).complete([{"role": "user", "content": "q"}], parameters)
+                self.assertNotIn(SECRET, str(error.exception))
+                request.assert_not_called()
+        self.assertNotIn("seed", normalize_parameters({"extra_body": {"seed": None, "top_k": 20}}))
+
+    def test_refusal_and_filter_are_completed_outcomes_not_network_retries(self):
+        cases = [({"content": None, "refusal": "I cannot comply."}, "stop", "I cannot comply."),
+                 ({"content": None}, "content_filter", ""),
+                 ({"content": "partial text"}, "content_filter", "partial text"),
+                 ({"content": None, "reasoning_content": "unfinished reasoning"}, "length", "")]
+        for message, finish, expected_text in cases:
+            source = response(choices=[{"message": message, "finish_reason": finish}], system_fingerprint="fp_fixture")
+            with self.subTest(finish=finish, message=message), patch(
+                    "qwenpt.eval.api_backend._open_request", return_value=source) as request:
+                result = ChatClient({**CONFIG, "retries": 2}).complete([{"role": "user", "content": "q"}], {})
+            self.assertEqual(request.call_count, 1)
+            self.assertEqual(result["text"], expected_text)
+            self.assertEqual(result["refusal"], message.get("refusal"))
+            self.assertEqual(result["system_fingerprint"], "fp_fixture")
+
+    def test_invalid_refusal_or_fingerprint_is_rejected(self):
+        cases = [response(choices=[{"message": {"content": "x", "refusal": {}}, "finish_reason": "stop"}]),
+                 response(system_fingerprint={"secret": SECRET})]
+        for source in cases:
+            with patch("qwenpt.eval.api_backend._open_request", return_value=source), self.assertRaises(APIError) as error:
+                ChatClient(CONFIG).complete([{"role": "user", "content": "q"}], {})
+            self.assertNotIn(SECRET, str(error.exception))
+
     def test_retry_only_transient_http_statuses_and_keep_request_identical(self):
         for status, retries in [(429, 1), (503, 1), (401, 0), (400, 0)]:
             error = HTTPError("http://x/" + SECRET, status, SECRET, {}, io.BytesIO(SECRET.encode()))
@@ -88,8 +138,10 @@ class TestChatClient(unittest.TestCase):
             ) as request:
                 client = ChatClient({**CONFIG, "retries": 2})
                 if retries:
-                    self.assertEqual(client.complete([{"role": "user", "content": "q"}], {})["text"], "Answer: B")
+                    self.assertEqual(client.complete([{"role": "user", "content": "q"}],
+                                     {"extra_body": {"seed": 903, "top_k": 20}})["text"], "Answer: B")
                     self.assertEqual(request.call_args_list[0].args[0].data, request.call_args_list[1].args[0].data)
+                    self.assertEqual(json.loads(request.call_args.args[0].data)["seed"], 903)
                 else:
                     with self.assertRaises(APIError) as captured:
                         client.complete([{"role": "user", "content": "q"}], {})

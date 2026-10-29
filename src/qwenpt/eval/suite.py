@@ -18,6 +18,8 @@ import time
 from typing import Any
 
 SUITE_VERSION = 1
+SAMPLING_PROTOCOL = "question-sample-seed-v1"
+SEED_SPACE = 2 ** 31
 SCORERS = {"exact_match", "multiple_choice", "math_equivalence", "llm_judge", "ifbench", "livecodebench"}
 
 
@@ -372,6 +374,70 @@ def _expected(config: dict, rows: list[dict]) -> dict[tuple[str, str, int], dict
             for row in rows for i in range(_samples(config, row))}
 
 
+def generation_parameters(config: dict) -> dict[str, dict]:
+    """Validate resolved generation settings before issuing any requests."""
+    from .api_backend import normalize_parameters
+    base = normalize_parameters(config.get("generation", {}))
+    generation = {}
+    for name, settings in config["benchmarks"].items():
+        override = settings.get("generation", {})
+        local = normalize_parameters(override)
+        merged = {**base, **local}
+        # The per-benchmark layer overrides the global layer regardless of
+        # whether SDK extra_body or direct HTTP fields were used at either level.
+        extra = override.get("extra_body") or {}
+        if ("seed" in override and override["seed"] is None) or ("seed" in extra and extra["seed"] is None):
+            merged.pop("seed", None)
+        generation[name] = normalize_parameters(merged)
+    for name, params in generation.items():
+        if set(params) & {"messages", "model", "stream", "n", "api_key", "headers"}:
+            raise ValueError("Generation settings may not override messages/model/stream/n/credentials")
+        if "max_tokens" in params and "max_completion_tokens" in params:
+            raise ValueError("Choose max_tokens or max_completion_tokens, not both")
+        seed = params.get("seed")
+        if seed is not None and (type(seed) is not int or not 0 <= seed < 2 ** 63):
+            raise ValueError("generation.seed must be a nonnegative 63-bit integer or null (omit from API)")
+        count = config["benchmarks"][name].get("samples", config.get("samples", 1))
+        if type(count) is not int or not 1 <= count <= SEED_SPACE:
+            raise ValueError("samples must be a positive integer within the per-question seed space")
+    return generation
+
+
+def sample_parameters(parameters: dict, benchmark: str, question_id: str, sample_index: int) -> dict:
+    """Stable seeds across ordering, splits, checkpoints and retry/resume.
+
+    A per-question hash offset plus the sample index guarantees distinct seeds
+    within a question. Neither model revision nor traversal order enters it.
+    Providers that do not support seed can omit it or configure seed: null.
+    """
+    result = dict(parameters)
+    seed = result.pop("seed", None)
+    if seed is not None:
+        if type(seed) is not int or not 0 <= seed < 2 ** 63:
+            raise ValueError("generation.seed must be a nonnegative 63-bit integer or null")
+        if type(sample_index) is not int or not 0 <= sample_index < SEED_SPACE:
+            raise ValueError("sample_index is outside the deterministic seed space")
+        offset = int(digest([SAMPLING_PROTOCOL, seed, benchmark, question_id]), 16) % SEED_SPACE
+        result["seed"] = (offset + sample_index) % SEED_SPACE
+    return result
+
+
+def _validate_sampling(records: dict, generation: dict) -> None:
+    protocol = generation.get("sampling_protocol")
+    if protocol is None:
+        if any(params.get("seed") is not None and generation["samples"][name] > 1
+               for name, params in generation["generation"].items()):
+            raise ValueError("Legacy cached samples reused a fixed seed; regenerate in a new output directory before averaging")
+        return
+    if protocol != SAMPLING_PROTOCOL:
+        raise ValueError("Unknown cached sampling protocol")
+    for key, record in records.items():
+        seed = sample_parameters(generation["generation"][key[0]], *key).get("seed")
+        if "request_seed" not in record or record["request_seed"] != seed or (
+                seed is not None and type(record["request_seed"]) is not int):
+            raise ValueError("Cached prediction seed differs from its question/sample identity")
+
+
 def _record_key(record: dict) -> tuple[str, str, int]:
     if type(record.get("sample_index")) is not int:
         raise ValueError("Invalid sample index")
@@ -389,8 +455,11 @@ def _validate_records(records: list[dict], expected: dict, fingerprint: str, *, 
             if type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1:
                 raise ValueError("Invalid cached score")
         elif (not isinstance(record.get("text"), str)
-              or not record["text"].strip() and record.get("finish_reason") != "length"
-              or record.get("finish_reason") not in {"stop", "length"}):
+              or not record["text"].strip() and record.get("finish_reason") not in {"length", "content_filter"}
+                 and not record.get("refusal")
+              or record.get("finish_reason") not in {"stop", "length", "content_filter"}
+              or record.get("refusal") is not None and not isinstance(record["refusal"], str)
+              or record.get("system_fingerprint") is not None and not isinstance(record["system_fingerprint"], str)):
             raise ValueError("Invalid cached completion")
         done[key] = record
     return done
@@ -425,6 +494,8 @@ def _summary(config: dict, selection: dict, expected: dict, done: dict, backend:
                         "prompt_accuracy_on_scored": sum(p["prompt_accuracy"] for p in parts) / len(parts)}
         else:
             item["length_limited_samples"] = sum(r["finish_reason"] == "length" for r in results)
+            item["content_filtered_samples"] = sum(r["finish_reason"] == "content_filter" for r in results)
+            item["refused_samples"] = sum(bool(r.get("refusal")) for r in results)
             item["elapsed_seconds"] = sum(r.get("elapsed_seconds", 0) for r in results)
         benchmarks[name] = item
     return {"schema_version": SUITE_VERSION, "suite": config["suite"], "split": selection["mode"],
@@ -451,6 +522,34 @@ def preflight_scorers(config: dict) -> dict:
         elif scorer["type"] == "livecodebench":
             from .livecodebench import preflight_livecodebench
             result[name] = preflight_livecodebench(scorer)
+        elif scorer["type"] == "math_equivalence":
+            if os.name == "nt":
+                raise RuntimeError("math_equivalence scoring requires the supported Linux runtime; Windows can prepare/generate data")
+            import importlib.metadata
+            from qwenpt.train.utils.bolt_math import math_answer_environment, parse_reference, score_math
+            versions = {package: importlib.metadata.version(package)
+                        for package in ("math-verify", "latex2sympy2-extended")}
+            parse_reference("1")
+            if not bool(score_math(math_answer_environment("1"), "1")):
+                raise RuntimeError("Math scorer runtime probe failed")
+            result[name] = {"dependencies": versions, "runtime_probe": "passed"}
+    return result
+
+
+def preflight_generation(config: dict, backend: str = "api") -> dict:
+    """Offline validation of every request setting, without model API calls."""
+    from .api_backend import ChatClient, endpoint_metadata, resolve_endpoint
+    _no_secrets(config)
+    if backend not in {"api", "mock"}:
+        raise ValueError("backend must be api or mock")
+    _revision(config.get("model", {}).get("revision"), "model.revision")
+    generation = generation_parameters(config)
+    result = {"ready": True, "backend": backend, "generation": generation, "sampling_protocol": SAMPLING_PROTOCOL}
+    if backend == "api":
+        model = config.get("model", {})
+        resolve_endpoint(model)
+        ChatClient(model)  # Validate timeout/retry options; construction has no network side effects.
+        result["endpoint"] = endpoint_metadata(model)
     return result
 
 
@@ -469,6 +568,7 @@ def run(config: dict, split: str, output: str | Path, backend: str = "api", clie
 
     if backend not in {"api", "mock"}:
         raise ValueError("backend must be api or mock")
+    preflight_generation(config, backend)
     rows, selection = prepare(config, split)
     model = config.get("model", {})
     revision = model.get("revision")
@@ -481,17 +581,12 @@ def run(config: dict, split: str, output: str | Path, backend: str = "api", clie
         endpoint = endpoint_metadata(model)
         resolve_endpoint(model)
         client = client or ChatClient(model)  # validate credentials before writing artifacts
+    generation = generation_parameters(config)
     expected = _expected(config, rows)
-    generation = {name: {**config.get("generation", {}), **settings.get("generation", {})}
-                  for name, settings in config["benchmarks"].items()}
-    for params in generation.values():
-        if set(params) & {"messages", "model", "stream", "n", "api_key", "headers"}:
-            raise ValueError("Generation settings may not override messages/model/stream/n/credentials")
-        if "max_tokens" in params and "max_completion_tokens" in params:
-            raise ValueError("Choose max_tokens or max_completion_tokens, not both")
     binding = {"schema_version": SUITE_VERSION, "selection_fingerprint": selection["selection_fingerprint"],
                "backend": backend, "endpoint": endpoint, "model_revision": revision, "model_config": model,
                "generation": generation,
+               "sampling_protocol": SAMPLING_PROTOCOL,
                "samples": {name: settings.get("samples", config.get("samples", 1))
                            for name, settings in config["benchmarks"].items()},
                "code_sha256": {name: file_digest(Path(__file__).with_name(name))
@@ -504,20 +599,24 @@ def run(config: dict, split: str, output: str | Path, backend: str = "api", clie
         bind(output / "selection.json", selection)
         bind(output / "manifest.json", manifest)
         done = _validate_records(read_records(output / "predictions.jsonl"), expected, manifest["run_fingerprint"])
+        _validate_sampling(done, binding)
         for key, row in expected.items():
             if key in done:
                 continue
             started = time.monotonic()
+            parameters = sample_parameters(generation[key[0]], *key)
             try:
                 if backend == "mock":
                     result = {"text": row["mock_response"], "reasoning": "", "finish_reason": "stop",
                               "usage": {}, "response_model": "mock"}
                 else:
                     messages = row.get("messages") or [{"role": "user", "content": row["prompt"]}]
-                    result = client.complete(messages, generation[key[0]])
+                    result = client.complete(messages, parameters)
                 record = {"benchmark": key[0], "question_id": key[1], "sample_index": key[2],
                           "run_fingerprint": manifest["run_fingerprint"], "elapsed_seconds": time.monotonic() - started,
-                          **{field: result.get(field) for field in ("text", "reasoning", "finish_reason", "usage", "response_model")}}
+                          "request_seed": parameters.get("seed"),
+                          **{field: result.get(field) for field in ("text", "reasoning", "finish_reason", "usage", "response_model",
+                                                                   "refusal", "system_fingerprint")}}
                 _validate_records([record], expected, manifest["run_fingerprint"])
                 append_json(output / "predictions.jsonl", record)
                 done[key] = record
@@ -529,6 +628,7 @@ def run(config: dict, split: str, output: str | Path, backend: str = "api", clie
         summary = _summary(config, selection, expected, done, backend, "generation")
         summary["run_fingerprint"] = manifest["run_fingerprint"]
         summary["model"] = endpoint
+        summary["sampling_protocol"] = SAMPLING_PROTOCOL
         write_json(output / "generation_summary.json", summary)
     return summary
 
@@ -536,7 +636,7 @@ def run(config: dict, split: str, output: str | Path, backend: str = "api", clie
 def score(config: dict, split: str, output: str | Path, score_tag: str = "default", judge=None) -> dict:
     """Score cached predictions; a new judge/rubric requires a new score tag."""
     from .api_backend import ChatClient, endpoint_metadata, resolve_endpoint
-    from .api_scoring import SCORER_VERSION, score_answer
+    from .api_scoring import SCORER_VERSION, score_answer, completed_model_failure
 
     _name(score_tag, "score tag")
     rows, selection = prepare(config, split)
@@ -567,13 +667,13 @@ def score(config: dict, split: str, output: str | Path, score_tag: str = "defaul
             raise ValueError("Configured model revision differs from generation")
         if generation["config"]["model_config"] != config.get("model", {}):
             raise ValueError("Configured model endpoint differs from generation")
-        parameters = {name: {**config.get("generation", {}), **settings.get("generation", {})}
-                      for name, settings in config["benchmarks"].items()}
+        parameters = generation_parameters(config)
         if generation["config"]["generation"] != parameters:
             raise ValueError("Configured generation parameters differ from generation")
         if generation["config"]["selection_fingerprint"] != selection["selection_fingerprint"]:
             raise ValueError("Generation selection fingerprint mismatch")
         predictions = _validate_records(read_records(output / "predictions.jsonl"), expected, generation["run_fingerprint"])
+        _validate_sampling(predictions, generation["config"])
         score_dir = output / "scores" / score_tag
         score_dir.mkdir(parents=True, exist_ok=True)
         binding = {"generation_fingerprint": generation["run_fingerprint"],
@@ -603,7 +703,11 @@ def score(config: dict, split: str, output: str | Path, score_tag: str = "defaul
                 continue
             try:
                 question = expected[key]
-                grade = score_answer(question, prediction["text"], config["benchmarks"][key[0]]["scorer"], judge)
+                scorer = config["benchmarks"][key[0]]["scorer"]
+                if prediction["finish_reason"] == "content_filter":
+                    grade = completed_model_failure(question, scorer, "content_filter")
+                else:
+                    grade = score_answer(question, prediction.get("refusal") or prediction["text"], scorer, judge)
                 record = {"benchmark": key[0], "question_id": key[1], "sample_index": key[2],
                           "run_fingerprint": manifest["run_fingerprint"], "prediction_sha256": digest(prediction), "grade": grade}
                 _validate_records([record], expected, manifest["run_fingerprint"], scoring=True)
@@ -615,6 +719,7 @@ def score(config: dict, split: str, output: str | Path, score_tag: str = "defaul
                             "message": "Scoring failed; verify scorer dependencies or judge response/configuration"})
         summary = _summary(config, selection, expected, done, generation["config"]["backend"], "score")
         summary.update(score_tag=score_tag, run_fingerprint=manifest["run_fingerprint"], judge=judge_metadata,
-                       model=generation["config"]["endpoint"])
+                       model=generation["config"]["endpoint"],
+                       sampling_protocol=generation["config"].get("sampling_protocol", "legacy-provider-parameters"))
         write_json(score_dir / "summary.json", summary)
     return summary

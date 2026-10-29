@@ -36,6 +36,7 @@ def receipt(task, split, output, monkeypatch):
     manifest = h.prepare_harness(task, split, output)
     runtime, env = h._runtime(manifest)
     h._json(output / "runtime.json", runtime)
+    h._json(output / "exit.json", {"returncode": 0, "manifest_fingerprint": manifest["fingerprint"]})
     return manifest, runtime, env
 
 
@@ -91,6 +92,7 @@ def test_native_job_config_has_exact_paths_no_secrets(corpus, tmp_path, monkeypa
     assert job["verifier"]["disable"] is False
     assert job["retry"]["max_retries"] == 0
     assert job["agents"][0]["model_api_key_name"] == "BENCHMARK_API_KEY"
+    assert job["agents"][0]["model_api_format"] == "openai_chat_completions"
     assert env["OPENAI_API_KEY"] == "test-secret-not-for-artifacts"
     assert "test-secret" not in json.dumps([job, runtime, manifest])
 
@@ -101,6 +103,7 @@ def test_deepswe_requires_pier_and_forwards_model_endpoint(corpus, tmp_path, mon
     job = h.native_job_config(manifest, tmp_path / "out", runtime)
     assert job["agents"][0]["name"] == "mini-swe-agent"
     assert "model_api_key_name" not in job["agents"][0]
+    assert job["agents"][0]["kwargs"]["model_class"] == "litellm"
     assert env["OPENAI_API_BASE"] == "http://localhost:8000/v1"
     with pytest.raises(ValueError, match="newer than"):
         h.prepare_harness(dict(task, engine_version="0.3.0"), "subset", tmp_path / "old")
@@ -200,7 +203,7 @@ def test_endpoint_credentials_and_unknown_settings_are_refused(corpus, tmp_path,
         h.prepare_harness(dict(corpus, api_key="secret"), "subset", tmp_path / "out")
     manifest, _, _ = receipt(corpus, "subset", tmp_path / "out", monkeypatch)
     monkeypatch.setenv("BENCHMARK_BASE_URL", "https://user:secret@example.test/v1")
-    with pytest.raises(ValueError, match="without credentials"):
+    with pytest.raises(ValueError, match="userinfo"):
         h._runtime(manifest)
 
 
@@ -230,9 +233,47 @@ def test_preflight_without_keys_reports_missing_runner_and_docker(corpus, tmp_pa
     result = h.preflight_harness(corpus, "subset", tmp_path / "out")
     assert result["ready"] is False
     assert result["model_api_checked"] is False
-    assert [row["component"] for row in result["checks"]] == ["dataset", "runner", "environment"]
+    assert [row["component"] for row in result["checks"]] == ["dataset", "runner", "environment", "endpoint_configuration"]
 
 
 def test_pier_requires_pinned_agent_version(corpus, tmp_path):
     with pytest.raises(ValueError, match="agent_version"):
         h.prepare_harness(dict(corpus, engine="pier", engine_version="0.3.1"), "subset", tmp_path / "out")
+
+
+@pytest.mark.parametrize("receipt_value", [None, {"returncode": None}, {"returncode": True}, {"returncode": 1}])
+def test_interrupted_or_invalid_exit_receipt_never_certifies_native_completion(corpus, tmp_path, monkeypatch, receipt_value):
+    output = tmp_path / "out"
+    manifest, runtime, _ = receipt(corpus, "subset", output, monkeypatch)
+    for name in manifest["task_ids"]:
+        trial(output, manifest, runtime, name)
+    if receipt_value is None:
+        (output / "exit.json").unlink()
+    else:
+        h._json(output / "exit.json", {**receipt_value, "manifest_fingerprint": manifest["fingerprint"]})
+    result = h.score_harness(corpus, "subset", output)
+    assert not result["complete"]
+    assert result["final_mean_score"] is None
+
+
+def test_explicit_unauthenticated_local_server_uses_nonsecret_framework_key(corpus, tmp_path, monkeypatch):
+    task = dict(corpus, api_key_required=False)
+    manifest, _, _ = receipt(task, "subset", tmp_path / "out", monkeypatch)
+    monkeypatch.delenv("BENCHMARK_API_KEY")
+    runtime, env = h._runtime(manifest)
+    assert runtime["authentication"] == "framework_placeholder"
+    assert env["OPENAI_API_KEY"] == env["BENCHMARK_API_KEY"] == "EMPTY"
+    assert runtime["model_api_format"] == "openai_chat_completions"
+
+
+def test_harness_checkout_subdirectory_cannot_claim_repository_root(corpus, tmp_path):
+    with pytest.raises(ValueError, match="repository root"):
+        h.prepare_harness(dict(corpus, checkout=str(Path(corpus["checkout"]) / "tasks")), "subset", tmp_path / "out")
+
+
+def test_full_chat_route_is_normalized_for_native_sdks(corpus, tmp_path, monkeypatch):
+    manifest, _, _ = receipt(corpus, "subset", tmp_path / "out", monkeypatch)
+    monkeypatch.setenv("BENCHMARK_BASE_URL", "http://localhost:8000/v1/chat/completions")
+    runtime, env = h._runtime(manifest)
+    assert runtime["base_url"] == "http://localhost:8000/v1"
+    assert env["OPENAI_BASE_URL"] == env["OPENAI_API_BASE"] == runtime["base_url"]

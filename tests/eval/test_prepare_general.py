@@ -59,3 +59,43 @@ def test_same_count_wrong_source_is_rejected_before_freezing(tmp_path):
 def test_unknown_preparation_task_is_not_silently_ignored(tmp_path):
     with pytest.raises(ValueError, match="Unknown"):
         prepare_general(source_config(tmp_path), tmp_path / "prepared", tasks=["not-there"])
+
+
+@pytest.mark.parametrize("content", ["", "[]", "sources: [\npassword: secret-marker"])
+def test_invalid_source_yaml_has_safe_cli_diagnostics(tmp_path, capsys, content):
+    from qwenpt.eval.cli import main
+    path = tmp_path / "bad.yaml"
+    path.write_text(content)
+    assert main(["prepare", "--config", str(path), "--output", str(tmp_path / "prepared")]) == 2
+    error = json.loads(capsys.readouterr().err)
+    assert error["error"] == "ValueError"
+    assert "secret-marker" not in error["message"]
+
+
+def test_invalid_subset_quota_is_not_reported_ready(tmp_path):
+    path = source_config(tmp_path)
+    config = yaml.safe_load(path.read_text())
+    config["sources"]["math"]["subset_count"] = 4
+    path.write_text(yaml.safe_dump(config))
+    result = prepare_general(path, tmp_path / "prepared")
+    assert not result["complete"]
+    assert "subset_count exceeds" in result["tasks"]["math"]["message"]
+    assert not (tmp_path / "prepared/math.jsonl").exists()
+
+
+def test_source_task_alias_uses_matching_bank_identity(tmp_path):
+    # GPQA source format can be registered under a project-specific task name.
+    row = {"Record ID": "a", "Question": "science", "Correct Answer": "correct",
+           "Incorrect Answer 1": "x", "Incorrect Answer 2": "y", "Incorrect Answer 3": "z"}
+    data = tmp_path / "gpqa.json"
+    data.write_text(json.dumps([row]))
+    source = {"kind": "gpqa", "repository": "fixture/gpqa", "revision": "a" * 40,
+              "files": [data.name], "local_files": [data.name],
+              "file_hashes": {data.name: {"sha256": hashlib.sha256(data.read_bytes()).hexdigest()}},
+              "release_count": 1, "expected_count": 1, "subset_count": 1, "split": "test"}
+    path = tmp_path / "source.yaml"
+    path.write_text(yaml.safe_dump({"version": 1, "sources": {"science_alias": source}}))
+    result = prepare_general(path, tmp_path / "prepared")
+    assert result["complete"]
+    config = load_config(result["tasks"]["science_alias"]["config"])
+    assert prepare(config, "full")[0][0]["benchmark"] == "science_alias"

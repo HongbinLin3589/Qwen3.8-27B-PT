@@ -340,3 +340,25 @@ def test_invalid_native_scores_are_rejected(configured, score):
     export_scores(output, plan, [{"task_id": plan["task_ids"][0], "status": "scored", "score": score}])
     with pytest.raises(ValueError, match="finite"):
         scenarios.score_scenario(task, "subset", output)
+
+
+def test_unknown_native_options_are_rejected_instead_of_silently_ignored(configured):
+    task, output = configured
+    with pytest.raises(ValueError, match="Unknown native scenario setting"):
+        scenarios.prepare_scenario(dict(task, max_output_tokens=500), "subset", output)
+
+
+def test_adapter_upgrade_requires_a_new_native_protocol_run(configured, monkeypatch):
+    task, output = configured
+    scenarios.prepare_scenario(task, "subset", output)
+    monkeypatch.setattr(scenarios, "_adapter_files", lambda: {"scenarios.py": "changed", "api_backend.py": "changed"})
+    with pytest.raises(ValueError, match="adapter/transport changed"):
+        scenarios.score_scenario(task, "subset", output)
+
+
+def test_native_preflight_rejects_invalid_api_key_before_launch(configured, monkeypatch):
+    task, output = configured
+    monkeypatch.setenv(task["api_key_env"], "invalid\nheader")
+    result = scenarios.preflight_scenario(task, "subset", output)
+    assert result["ready"] is False
+    assert any("Invalid model endpoint" in message for message in result["blockers"])

@@ -25,6 +25,8 @@ generation:
   max_tokens: 32768
   temperature: 1.0
   top_p: 0.95
+  # Base seed: each benchmark/question/sample gets a stable derived request seed.
+  # HTTP retry/resume keeps that sample's seed. Omit or use null if unsupported.
   seed: 20261024
 # One sample per selected question, including in full mode.
 # For avg@32, explicitly set samples: 32 under EACH aime benchmark below.

@@ -57,7 +57,7 @@ PowerShell 对应：`py -3.12 -m venv .venv-eval`、`.\.venv-eval\Scripts\Activa
 
 命令使用 `--env-file .env` 才加载该文件；已有进程环境变量优先，文件不执行 shell、不做变量替换。真实 key 不写 YAML、不提交 Git。项目入口将 `BENCHMARK_REVISION` 统一应用于所有任务；生成的单任务 YAML 若直接运行，也必须填入实际 `model.revision`。`FILL_*`、`main`、`latest` 等占位或移动版本会被拒绝。
 
-本地明确无认证的单轮 API 服务可设置其 `api_key_required: false`；原生 harness 按对应服务契约配置。模型必须预先启动，支持所需工具、图像及上下文预算；本接口不启动训练或模型服务器。
+本地明确无认证的服务可设置 `api_key_required: false`。Harbor/Pier 的内部 SDK 仍要求 key 字符串，因此此时使用非密钥占位值 `EMPTY`；不会读取或替换成另一服务的密钥。模型必须预先启动，支持所需工具、图像及上下文预算；本接口不启动训练或模型服务器。
 
 ## 3. 下载并冻结数据、规则和环境
 
@@ -144,7 +144,7 @@ python -m qwenpt.eval project score --config configs/eval/project.yaml --profile
   --split subset --output runs/eval/base-core-subset --env-file .env
 ```
 
-每个 checkpoint 使用独立输出目录和真实 `BENCHMARK_REVISION`，保持数据、agent、harness、上下文、生成预算和 scorer 不变。`plan` 不调用模型；`doctor` 检查数据、规则依赖和运行环境，不等于模型 API 已实测。`run` 先预检所选任务；单轮题库只生成，原生 harness / 场景可能同时启动环境、执行工具和判分；`score` 汇总固定输出。
+每个 checkpoint 使用独立输出目录和真实 `BENCHMARK_REVISION`，保持数据、agent、harness、上下文、生成预算和 scorer 不变。`plan` 不调用模型；`doctor` 检查全部所选任务的数据、API 配置、参数、密钥、规则依赖和运行环境，再允许生成。该检查不请求模型，不代表服务已启动或支持所有模型专用参数。`run` 先预检所选任务；单轮题库只生成，原生 harness / 场景可能同时启动环境、执行工具和判分；`score` 汇总固定输出。
 
 场景试跑单独使用 `--profile scenarios --split subset` 及新输出目录。只调试一项时可追加 `--tasks ifbench` 或对应 ID，报告会记录 `omitted_profile_tasks`，不能视为完整 profile 已完成。
 
@@ -174,9 +174,42 @@ python -m qwenpt.eval project score --config configs/eval/project.yaml --profile
 
 单轮题库保存 `selection.json`、`manifest.json`、`predictions.jsonl`、生成汇总、错误日志，以及 `scores/<score-tag>/` 下的逐样本评分和汇总。IFBench 保留 strict / loose 及约束级分子分母；LCB 保存官方执行结果。原生任务保存任务 manifest、job / scenario plan、逐 trial 或环境证据、资源统计。
 
-单轮题库重跑同一命令会按指纹跳过已完成样本、补做失败项；同一目录不能并发写入。模型权重、任务、数据、生成参数、环境或 agent 变化时使用新目录。原生 harness 已有的部分作业不会被删除或悄然重跑；按原生 runner 的恢复方式处理，或保留旧记录并创建新目录。
+单轮题库重跑同一命令会按指纹跳过已完成样本、补做失败项；同一目录不能并发写入。模型权重、任务、数据、生成参数、适配器、环境或 agent 变化时使用新目录。原生 harness 的中断或失败作业保留原始日志，重试使用新目录；当前接口不导入手工 native resume 的新退出回执。只有匹配协议且成功退出的运行才能发布完整原生成绩。
 
 评分未完整时，`final_mean_score` 为 null，`mean_on_scored` 只是暂时统计。输出预算耗尽和测试失败属于模型在固定预算内的结果；API / 环境 / 判分故障分别登记，不从分母消失。CLI 未完成时退出码为 `2`。
+
+### 多次采样与 seed
+
+`subset.seed` 只控制选题。单轮生成的 `generation.seed` 是**基础 seed**：程序按基础 seed、benchmark、question_id 派生题目偏移，再加入 `sample_index`，得到非负31位请求 seed。同题的32次采样使用32个不同 seed；HTTP 重试、断点补跑使用该次采样原来的 seed。题库顺序、subset/full 或 checkpoint 的变化不影响相同题目与采样序号的 seed，便于原版与训练版对照。
+
+```yaml
+generation:
+  seed: 20261024
+  temperature: 1.0
+  max_tokens: 32768
+benchmarks:
+  aime2026:
+    samples: 32
+    scorer:
+      type: math_equivalence
+```
+
+不支持 seed 的 API 请省略 `generation.seed`，或设为 `null`；不会自动发送 seed。`temperature: 0` 或服务忽略 seed 时，改变 seed 仍可能产生相同答案，不能将其当成32次独立随机试验。`avg@32` 是32次正确率的平均，不是 `pass@32`。
+
+`manifest.json` 记录 `question-sample-seed-v1`，每条 prediction 记录实际 `request_seed`，同时保留服务返回的 `system_fingerprint`。升级前固定 seed 的重复采样必须换新目录重新生成，不能直接继续作为 avg@32 使用；程序拒绝混用新旧采样协议。旧的单次采样或未配置 seed 的有效答案可尝试独立 `score --score-tag <新标签>`，仍须通过数据与生成设置校验。
+
+### 兼容性边界
+
+| 环节 | 已支持与检查的契约 | 运行条件 |
+|---|---|---|
+| 模型／judge API | 单响应 Chat Completions；独立 endpoint/key；分离最终答案与 reasoning；保留服务指纹 | vLLM、SGLang 或远程服务需实际实现该协议；不自动改用 Responses API |
+| 生成参数 | `max_tokens` 或 `max_completion_tokens`；支持展开 SDK 风格 `extra_body`，嵌套 seed 同样派生 | 重复字段、路由覆盖及两种 token 上限同时出现会被拒绝；不静默丢弃服务不支持的参数 |
+| 拒答／过滤 | 合法拒答作为模型输出交给对应 scorer；内容过滤计零并保留分母 | judge 自身拒答不是有效评分；过滤的部分答案不获取正确分 |
+| Windows | 配置、数据准备、选题、HTTP API、规则评测与离线测试 | 数学判等明确要求 Linux；交互环境和 Linux Docker 需另行部署 |
+| Linux | 数学验证器运行探测、官方 IFBench 规则、Docker 中官方 LCB 判分 | 真实模型、网站、VM、模拟器仍须在评测主机完成接入测试 |
+| Harbor／Pier | 固定 runner/agent 版本，显式 Chat Completions，严格原生退出回执与 task/trial 覆盖 | 固定源码与 Docker；适配器升级需新输出目录 |
+
+视觉 judge 的图片只通过原生图片块发送，不把 base64 图片再次写入文本问题。所有任务分别保留缺失、解析错误、环境失败和模型失败；不同类型不混作一个准确率。
 
 ## 6. 单任务 API、离线示例与扩展 judge
 

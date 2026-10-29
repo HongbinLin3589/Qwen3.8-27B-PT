@@ -8,6 +8,7 @@ on:
       - 'tests/eval/**'
       - 'configs/eval/**'
       - 'examples/eval/**'
+      - 'scripts/eval/**'
       - '.github/workflows/benchmark-interface.yml'
   pull_request:
     paths:
@@ -16,6 +17,7 @@ on:
       - 'tests/eval/**'
       - 'configs/eval/**'
       - 'examples/eval/**'
+      - 'scripts/eval/**'
       - '.github/workflows/benchmark-interface.yml'
 
 permissions:
@@ -43,3 +45,39 @@ jobs:
           python -m qwenpt.eval score --config configs/eval/demo.yaml --split subset --output runs/eval/ci-subset
           python -m qwenpt.eval run --config configs/eval/demo.yaml --split full --output runs/eval/ci-full --backend mock
           python -m qwenpt.eval score --config configs/eval/demo.yaml --split full --output runs/eval/ci-full
+      - name: General capability catalog
+        run: python -m qwenpt.eval project list --config configs/eval/project.yaml
+
+  official-graders:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: src
+      PYTHONUTF8: '1'
+      NLTK_DATA: /tmp/qwenpt-nltk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/checkout@v4
+        with:
+          repository: allenai/IFBench
+          ref: 1c40f0c10d9b5c5c2f10a175a28007ebb64f7f4d
+          path: .eval-tools/IFBench
+      - uses: actions/checkout@v4
+        with:
+          repository: LiveCodeBench/LiveCodeBench
+          ref: 28fef95ea8c9f7a547c8329f2cd3d32b92c1fa24
+          path: .eval-tools/LiveCodeBench
+      - name: Install official instruction rules
+        run: |
+          python -m pip install 'pytest>=9,<10' 'PyYAML>=6,<7' 'nltk==3.9.2' -e .eval-tools/IFBench
+          python -m nltk.downloader -d "$NLTK_DATA" punkt punkt_tab stopwords averaged_perceptron_tagger_eng
+      - name: Build isolated official code grader
+        run: |
+          docker build -t qwenpt-lcb -f scripts/eval/Dockerfile.livecodebench .
+          echo "LCB_SANDBOX_IMAGE=$(docker image inspect --format '{{.Id}}' qwenpt-lcb)" >> "$GITHUB_ENV"
+          echo "IFBENCH_CHECKOUT=$PWD/.eval-tools/IFBench" >> "$GITHUB_ENV"
+          echo "LCB_CHECKOUT=$PWD/.eval-tools/LiveCodeBench" >> "$GITHUB_ENV"
+      - name: Check real rule and execution graders without a model API
+        run: python -m pytest tests/eval/test_ifbench.py tests/eval/test_official_lcb.py -q

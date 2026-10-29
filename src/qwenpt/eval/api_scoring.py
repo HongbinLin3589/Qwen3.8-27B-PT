@@ -15,7 +15,7 @@ from qwenpt.eval.api_backend import ChatClient
 from qwenpt.eval.scoring import last_boxed
 
 
-SCORER_VERSION = "api-scorer-v1"
+SCORER_VERSION = "api-scorer-v2"
 
 
 def final_answer_text(text: str) -> str:
@@ -166,6 +166,12 @@ def score_answer(question: dict, final_text: str, scorer: dict, judge: ChatClien
         raise ValueError("question and scorer must be mappings")
     kind = scorer.get("type")
     text = final_answer_text(final_text)
+    if kind == "ifbench":
+        from .ifbench import score_ifbench
+        return score_ifbench(question, text, scorer)
+    if kind == "livecodebench":
+        from .livecodebench import score_livecodebench
+        return score_livecodebench(question, text, scorer)
     if kind == "llm_judge":
         # Empty/incomplete final content is still explicitly assessed by the
         # rubric, never replaced with reasoning text.

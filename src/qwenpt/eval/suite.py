@@ -18,7 +18,7 @@ import time
 from typing import Any
 
 SUITE_VERSION = 1
-SCORERS = {"exact_match", "multiple_choice", "math_equivalence", "llm_judge"}
+SCORERS = {"exact_match", "multiple_choice", "math_equivalence", "llm_judge", "ifbench", "livecodebench"}
 
 
 def digest(value: Any) -> str:
@@ -122,6 +122,12 @@ def load_config(path: str | Path) -> dict:
         scorer = settings.get("scorer")
         if not isinstance(scorer, dict) or scorer.get("type") not in SCORERS:
             raise ValueError(f"Unsupported scorer for {name}; use an explicit supported scorer")
+        if scorer["type"] in {"ifbench", "livecodebench"}:
+            if not isinstance(scorer.get("checkout"), str) or not scorer["checkout"]:
+                raise ValueError(f"{name} requires its official grader checkout")
+            scorer["checkout"] = str((path.parent / scorer["checkout"]).resolve())
+            if not re.fullmatch(r"[0-9a-f]{40}", scorer.get("revision", "")):
+                raise ValueError(f"{name} requires a full immutable official grader revision")
         if scorer["type"] == "llm_judge":
             if scorer.get("mode", "correctness") not in {"correctness", "rubric"}:
                 raise ValueError("Judge mode must be correctness or rubric")
@@ -182,7 +188,8 @@ def load_bank(config: dict) -> list[dict]:
             elif not isinstance(row.get("prompt"), str) or not row["prompt"].strip():
                 raise ValueError(f"Missing prompt/messages: {key}")
             scorer = config["benchmarks"][benchmark]["scorer"]
-            if scorer["type"] != "llm_judge" or scorer.get("mode", "correctness") == "correctness":
+            if scorer["type"] not in {"ifbench", "livecodebench"} and (
+                    scorer["type"] != "llm_judge" or scorer.get("mode", "correctness") == "correctness"):
                 if row.get("reference", row.get("answer")) in (None, "", []):
                     raise ValueError(f"Missing reference/answer: {key}")
             if scorer["type"] == "llm_judge":
@@ -407,6 +414,15 @@ def _summary(config: dict, selection: dict, expected: dict, done: dict, backend:
             # A partial run never receives a final mean that hides missing items.
             item["final_mean_score"] = (sum(r["grade"]["score"] for r in results) / len(keys)
                                         if len(results) == len(keys) else None)
+            if results and all("ifbench" in record["grade"] for record in results):
+                item["ifbench"] = {}
+                for mode in ("strict", "loose"):
+                    parts = [record["grade"]["ifbench"][mode] for record in results]
+                    total = sum(part["instruction_total"] for part in parts)
+                    correct = sum(part["instruction_correct"] for part in parts)
+                    item["ifbench"][mode] = {"instruction_correct": correct, "instruction_total": total,
+                        "instruction_accuracy_on_scored": correct / total,
+                        "prompt_accuracy_on_scored": sum(p["prompt_accuracy"] for p in parts) / len(parts)}
         else:
             item["length_limited_samples"] = sum(r["finish_reason"] == "length" for r in results)
             item["elapsed_seconds"] = sum(r.get("elapsed_seconds", 0) for r in results)
@@ -422,6 +438,20 @@ def _summary(config: dict, selection: dict, expected: dict, done: dict, backend:
 def prepare(config: dict, split: str) -> tuple[list[dict], dict]:
     _no_secrets(config)
     return select_questions(config, load_bank(config), split)
+
+
+def preflight_scorers(config: dict) -> dict:
+    """Resolve official scorer provenance before a run, without calling a model."""
+    result = {}
+    for name, settings in config["benchmarks"].items():
+        scorer = settings["scorer"]
+        if scorer["type"] == "ifbench":
+            from .ifbench import preflight_ifbench
+            result[name] = preflight_ifbench(scorer["checkout"], scorer["revision"])
+        elif scorer["type"] == "livecodebench":
+            from .livecodebench import preflight_livecodebench
+            result[name] = preflight_livecodebench(scorer)
+    return result
 
 
 def plan(config: dict, split: str, output: str | Path) -> dict:
@@ -511,6 +541,7 @@ def score(config: dict, split: str, output: str | Path, score_tag: str = "defaul
     _name(score_tag, "score tag")
     rows, selection = prepare(config, split)
     expected = _expected(config, rows)
+    official_scorers = preflight_scorers(config)
     output = Path(output)
     if not (output / "manifest.json").exists():
         raise ValueError("Generation manifest missing; run generation first")
@@ -549,8 +580,11 @@ def score(config: dict, split: str, output: str | Path, score_tag: str = "defaul
                    "scorers": {name: s["scorer"] for name, s in config["benchmarks"].items()},
                    "judge": judge_metadata, "judge_revision": config.get("judge", {}).get("revision"),
                    "scorer_version": SCORER_VERSION,
+                   "official_scorers": official_scorers,
                    "code_sha256": {name: file_digest(Path(__file__).with_name(name))
                                    for name in ("suite.py", "api_scoring.py", "api_backend.py", "scoring.py")}}
+        for name in ("ifbench.py", "livecodebench.py", "lcb_worker.py"):
+            binding["code_sha256"][name] = file_digest(Path(__file__).with_name(name))
         if any(s["scorer"]["type"] == "math_equivalence" for s in config["benchmarks"].values()):
             import importlib.metadata
             binding["code_sha256"]["bolt_math.py"] = file_digest(Path(__file__).parent.parent / "train" / "utils" / "bolt_math.py")

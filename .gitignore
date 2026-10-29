@@ -57,6 +57,7 @@ AGENTS.md
 !.env.example
 !/configs/eval/.env.example
 /runs/eval/
+/.eval-tools/
 
 # Generated data-pipeline outputs; curated datasets remain versioned.
 /data/pipeline/

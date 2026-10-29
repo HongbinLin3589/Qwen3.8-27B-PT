@@ -1,0 +1,69 @@
+# Canonical Feishu v0.1 core, checked 2026-10-29. All revisions are immutable.
+# HMMT10 + Shortlist10 is an implementation split of the suggested combined20.
+# Supply local_files (in the same order as files) to prepare without downloading.
+version: 1
+seed: 20261017
+sources:
+  ifbench:
+    kind: ifbench
+    checkout: ../../.eval-tools/IFBench
+    revision: 1c40f0c10d9b5c5c2f10a175a28007ebb64f7f4d
+    expected_count: 300
+    subset_count: 50
+    split: test
+  gpqa_diamond:
+    kind: gpqa
+    repository: Idavidrein/gpqa
+    revision: 633f5ee89ab8ad4522a9f850766b73f62147ffdd
+    files: [gpqa_diamond.csv]
+    file_hashes:
+      gpqa_diamond.csv:
+        git_blob: 7589e3e467d69a1dceb126a60c4108d6d4f1d166
+    release_count: 198
+    expected_count: 198
+    subset_count: 30
+    split: train
+    option_seed: 0
+  livecodebench:
+    kind: livecodebench
+    repository: livecodebench/code_generation_lite
+    revision: 0fe84c3912ea0c4d4a78037083943e8f0c4dd505
+    files: [test6.jsonl]
+    file_hashes:
+      test6.jsonl:
+        sha256: bb4c364f71921c4495a6ad15abe1a927350b720009f4933e2e71f8af0f6fd1f5
+    # Incremental v6 ONLY, not cumulative release_v6 (1055).
+    # File has175 tasks, actual dates2025-01-04..2025-04-06; no date filter.
+    version_tag: v6
+    release_count: 175
+    expected_count: 175
+    subset_count: 30
+    split: test
+    start_date: null
+    end_date: null
+    grader_checkout: ../../.eval-tools/LiveCodeBench
+    grader_revision: 28fef95ea8c9f7a547c8329f2cd3d32b92c1fa24
+  hmmt_feb_2026:
+    kind: matharena
+    repository: MathArena/hmmt_feb_2026
+    revision: 589a53fe152febc0f4f99f3e561007bf8da8e664
+    files: [data/train-00000-of-00001.parquet]
+    file_hashes:
+      data/train-00000-of-00001.parquet:
+        sha256: 0b66a6f02933030bec1785e1e6284eeb633bb101267418b4bc12b5091ed829cb
+    release_count: 33
+    expected_count: 33
+    subset_count: 10
+    split: train
+  apex_shortlist:
+    kind: matharena
+    repository: MathArena/apex-shortlist
+    revision: f3efdf224ef665f129ddaae37699f6098c65781b
+    files: [data/train-00000-of-00001.parquet]
+    file_hashes:
+      data/train-00000-of-00001.parquet:
+        sha256: 12f2300323d4d0cbd51b4c7528ae45b626e1681b0103c3df94d5488324c44acc
+    release_count: 47
+    expected_count: 47
+    subset_count: 10
+    split: train

@@ -12,7 +12,9 @@ def main():
     with open("/input.json", encoding="utf-8") as stream:
         payload = json.load(stream)
     code = extract_code(payload["text"], LMStyle.OpenAIChat)
-    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+    # Upstream calls faulthandler.enable(), which needs a real stderr fileno.
+    # Docker already captures stderr separately from this worker's JSON stdout.
+    with contextlib.redirect_stdout(io.StringIO()):
         metrics = codegen_metrics([payload["sample"]], [[code]], k_list=[1], num_process_evaluate=1,
                                   timeout=payload["timeout"])
     values = metrics[1][0][0]

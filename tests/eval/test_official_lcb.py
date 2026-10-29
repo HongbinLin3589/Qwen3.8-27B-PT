@@ -18,6 +18,6 @@ def test_official_execution_grader_distinguishes_correct_code_from_wrong_code():
     scorer = {"checkout": os.environ["LCB_CHECKOUT"], "revision": "28fef95ea8c9f7a547c8329f2cd3d32b92c1fa24"}
     correct = score_livecodebench(question, "```python\nprint(sum(map(int,input().split())))\n```", scorer)
     wrong = score_livecodebench(question, "```python\nprint(0)\n```", scorer)
-    assert correct["correct"] is True
-    assert wrong["correct"] is False
+    assert correct["correct"] is True, correct["execution"]
+    assert wrong["correct"] is False, wrong["execution"]
     assert correct["metric"] == wrong["metric"] == "pass@1"

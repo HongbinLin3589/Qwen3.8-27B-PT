@@ -62,11 +62,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: allenai/IFBench
+          persist-credentials: false
           ref: 1c40f0c10d9b5c5c2f10a175a28007ebb64f7f4d
           path: .eval-tools/IFBench
       - uses: actions/checkout@v4
         with:
           repository: LiveCodeBench/LiveCodeBench
+          persist-credentials: false
           ref: 28fef95ea8c9f7a547c8329f2cd3d32b92c1fa24
           path: .eval-tools/LiveCodeBench
       - name: Install official instruction rules

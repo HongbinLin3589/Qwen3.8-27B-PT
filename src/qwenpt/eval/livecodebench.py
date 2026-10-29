@@ -166,7 +166,8 @@ def score_livecodebench(question: dict, text: str, scorer: dict) -> dict:
                    "--memory", "2g", "--cpus", "2", "--user", "65534:65534",
                    "--tmpfs", "/tmp:rw,exec,size=512m", "--tmpfs", "/dev/shm:rw,size=128m",
                    "--env", "PYTHONDONTWRITEBYTECODE=1", "--env", "PYTHONPATH=/opt/lcb",
-                   "--mount", f"type=bind,src={identity['checkout']},dst=/opt/lcb,readonly",
+                   # Mount code only, excluding .git credential configuration.
+                   "--mount", f"type=bind,src={Path(identity['checkout']) / 'lcb_runner'},dst=/opt/lcb/lcb_runner,readonly",
                    "--mount", f"type=bind,src={payload},dst=/input.json,readonly",
                    "--mount", f"type=bind,src={worker},dst=/worker.py,readonly",
                    identity["image"], "python", "/worker.py"]

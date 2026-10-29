@@ -115,6 +115,8 @@ class TestLiveCodeBenchDocker(unittest.TestCase):
             mounts = [command[index + 1] for index, value in enumerate(command) if value == "--mount"]
             self.assertEqual(len(mounts), 3)
             self.assertTrue(all(mount.endswith(",readonly") for mount in mounts))
+            self.assertTrue(any("dst=/opt/lcb/lcb_runner,readonly" in mount for mount in mounts))
+            self.assertFalse(any("dst=/opt/lcb,readonly" in mount for mount in mounts))
             payload_mount = next(mount for mount in mounts if "dst=/input.json" in mount)
             path = payload_mount.split("src=", 1)[1].split(",dst=", 1)[0]
             payload = json.loads(Path(path).read_text(encoding="utf-8"))

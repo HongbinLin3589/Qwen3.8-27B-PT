@@ -111,6 +111,5 @@ overrides=(
     "hydra.job.chdir=false"
 )
 
-python -m qwenpt.train.utils.wandb_proxy -- \
-    torchrun --standalone --nnodes=1 --nproc-per-node="$num_gpus" \
+exec torchrun --standalone --nnodes=1 --nproc-per-node="$num_gpus" \
     --module qwenpt.train.bolt "${overrides[@]}" "$@"

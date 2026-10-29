@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from io import BytesIO
+import hashlib
 import json
 import re
 from typing import Any
@@ -10,12 +11,25 @@ from PIL import Image
 import torch
 
 
-def assistant_loss_mask(input_ids: torch.Tensor, tokenizer: Any, loss_scope: str = "all_assistant") -> torch.Tensor:
+def tokenized_fingerprint(input_ids: torch.Tensor, loss_mask: torch.Tensor) -> str:
+    """Hash input IDs followed by the unshifted mask as original-dtype CPU bytes."""
+    digest = hashlib.sha256()
+    for values in (input_ids, loss_mask):
+        digest.update(values.detach().cpu().contiguous().numpy().tobytes())
+    return digest.hexdigest()
+
+
+def assistant_loss_mask(
+    input_ids: torch.Tensor, tokenizer: Any, loss_scope: str = "all_assistant",
+    message_loss_masks: list[int] | None = None,
+) -> torch.Tensor:
     """Mask assistant bodies and closing tokens in a one-dimensional Qwen sequence.
 
     ``tokenizer`` must register the Qwen ChatML boundary tokens; ``loss_scope``
     selects all assistant turns or only the last one. Prepared messages must not
     contain literal ChatML boundary tokens inside their content.
+    ``message_loss_masks`` optionally excludes assistant turns in their original
+    order while retaining those turns as model context; the returned mask is unshifted.
     """
     if loss_scope not in ("all_assistant", "last_assistant"):
         raise ValueError("loss_scope must be all_assistant or last_assistant")
@@ -45,8 +59,17 @@ def assistant_loss_mask(input_ids: torch.Tensor, tokenizer: Any, loss_scope: str
         cursor = closing + 1
     if not spans:
         raise ValueError("Rendered conversation contains no assistant supervision")
+    if message_loss_masks is not None:
+        if len(message_loss_masks) != len(spans):
+            raise ValueError("Rendered assistant turns do not match message-level loss masks")
+        if any(value not in (0, 1) for value in message_loss_masks):
+            raise ValueError("Message loss_mask must be zero or one")
     mask = torch.zeros_like(input_ids)
-    for first, last in spans[-1:] if loss_scope == "last_assistant" else spans:
+    selected = range(len(spans) - 1, len(spans)) if loss_scope == "last_assistant" else range(len(spans))
+    for index in selected:
+        if message_loss_masks is not None and not message_loss_masks[index]:
+            continue
+        first, last = spans[index]
         mask[first:last] = 1
     return mask
 
@@ -60,8 +83,8 @@ def tokenize_sft_sample(
 ) -> dict[str, Any]:
     """Tokenize a prepared Parquet sample into model inputs plus loss_mask.
 
-    Data validity is guaranteed by the data producer. Template arguments omit
-    reasoning_effort, retaining default xhigh; media requires a processor.
+    Decode delivery tools and preserve message-level supervision. Template arguments
+    omit reasoning_effort, retaining default xhigh; media requires a processor.
     """
     if not isinstance(enable_thinking_default, bool):
         raise ValueError("enable_thinking_default must be a boolean")
@@ -75,10 +98,15 @@ def tokenize_sft_sample(
     if processor is not None:
         messages = processor_messages(messages, sample)
     renderer = processor if processor is not None else tokenizer
+    tools = sample.get("tools")
+    if isinstance(tools, str):
+        tools = json.loads(tools)
+    if tools is not None and (not isinstance(tools, list) or any(not isinstance(tool, dict) for tool in tools)):
+        raise ValueError("tools must be a list of tool schemas or a JSON-encoded list")
     inputs = dict(
         renderer.apply_chat_template(
             messages,
-            tools=sample.get("tools") or None,
+            tools=tools or None,
             enable_thinking=thinking,
             preserve_thinking=True,
             add_generation_prompt=False,
@@ -91,8 +119,16 @@ def tokenize_sft_sample(
     if input_ids.ndim != 2 or input_ids.shape[0] != 1:
         raise ValueError("The processor must return exactly one tokenized conversation")
     inputs["input_ids"] = input_ids[0]
-    inputs["attention_mask"] = inputs.get("attention_mask", torch.ones_like(input_ids))[0]
-    inputs["loss_mask"] = assistant_loss_mask(inputs["input_ids"], tokenizer, loss_scope)
+    if "attention_mask" not in inputs:
+        inputs["attention_mask"] = torch.ones_like(input_ids)
+    inputs["attention_mask"] = inputs["attention_mask"][0]
+    assistant_messages = [message for message in messages if message["role"] == "assistant"]
+    if any(message.get("weight") not in (None, 1, 1.0) for message in assistant_messages):
+        raise ValueError("Non-unit message weights require an explicitly defined weighted SFT objective")
+    message_masks = [1 if message.get("loss_mask") is None else message["loss_mask"] for message in assistant_messages]
+    inputs["loss_mask"] = assistant_loss_mask(inputs["input_ids"], tokenizer, loss_scope, message_masks)
+    if not inputs["loss_mask"].any():
+        raise ValueError("SFT sample contains no supervised tokens")
     return inputs
 
 

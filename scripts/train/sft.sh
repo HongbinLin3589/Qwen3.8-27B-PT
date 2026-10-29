@@ -1,14 +1,4 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=qwenpt-sft-math
-#SBATCH --partition=acd_u
-#SBATCH --output=sft_%j.out
-#SBATCH --error=sft_%j.err
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --gres=gpu:2
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=480G
-#SBATCH --time=72:00:00
 
 set -euo pipefail
 
@@ -25,23 +15,28 @@ done
 cd -- "$project_root"
 source ./.venv/bin/activate
 
-# Prefer the project model directory, with the verified local snapshot as fallback.
-model_path="$project_root/models/Qwen3.8-27B"
-if [[ ! -f "$model_path/config.json" ]]; then
-    hub_cache="${HF_HUB_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}/hub}"
-    model_path="$hub_cache/models--Qwen--Qwen3.8-27B/snapshots/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+model_path="${QWENPT_SFT_MODEL_PATH:-$project_root/models/Qwen3.8-27B}"
+if [[ -z "${QWENPT_SFT_MODEL_PATH:-}" && ! -f "$model_path/config.json" ]]; then
+    model_path="$(CUDA_VISIBLE_DEVICES='' python -c \
+        "from huggingface_hub import snapshot_download; print(snapshot_download('Qwen/Qwen3.8-27B', revision='1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0', local_files_only=True))")"
 fi
-source_data="$project_root/data/curated/math-sft-10k-v1"
-prepared_dir="$project_root/data/processed/sft/math-sft-10k-v1-seed20261020"
-train_file="$prepared_dir/train.parquet"
-val_file="$prepared_dir/val.parquet"
-output_dir="${QWENPT_SFT_OUTPUT_DIR:-$project_root/checkpoints/sft-math-10k-full-2epoch/${SLURM_JOB_ID:-local}}"
-num_gpus=2
+prepared_dir="$project_root/data/processed/sft/qwen27b-v2"
+train_file="${QWENPT_SFT_TRAIN_FILE:-$prepared_dir/train/pool.parquet}"
+val_file="${QWENPT_SFT_VAL_FILE:-$prepared_dir/validation/pool.parquet}"
+output_dir="${QWENPT_SFT_OUTPUT_DIR:-$project_root/checkpoints/sft-v2-100k-1epoch}"
+num_gpus=6
+seed=20261028
 
 if [[ ! -f "$model_path/config.json" ]]; then
-    echo "Set model_path in scripts/train/sft.sh to a local model directory." >&2
+    echo "Set QWENPT_SFT_MODEL_PATH to the local model directory." >&2
     exit 1
 fi
+if [[ ! -f "$train_file" || ! -f "$val_file" ]]; then
+    echo "Set QWENPT_SFT_TRAIN_FILE and QWENPT_SFT_VAL_FILE to the prepared v2 split files." >&2
+    exit 1
+fi
+# qwenpt GPUs 0–1 are reserved for another service.
+export CUDA_VISIBLE_DEVICES=2,3,4,5,6,7
 export OMP_NUM_THREADS=4
 export OPENBLAS_NUM_THREADS=1
 # MKL takes precedence for Torch CPU operations; keep the per-rank budgets equal.
@@ -50,18 +45,12 @@ export RAYON_NUM_THREADS=1
 export TOKENIZERS_PARALLELISM=false
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
-# Slurm exports ROCm masks even on H100 nodes; verl rejects simultaneous CUDA masks.
+# verl rejects simultaneous CUDA and ROCm masks.
 unset ROCR_VISIBLE_DEVICES HIP_VISIBLE_DEVICES
-# FLA routes the affected Hopper backward kernel through TileLang with CUDA 12 nvcc.
-export CUDA_HOME=/usr/local/cuda-12.8
-export CC=/data/apps/gcc/12.5/bin/gcc
-export CXX=/data/apps/gcc/12.5/bin/g++
-export PATH="$CUDA_HOME/bin:/data/apps/gcc/12.5/bin:$PATH"
+# Use qwenpt's prepared compiler environment rather than paths from the old Slurm host.
 export FLA_TILELANG=1
 unset FLA_CI_ENV FLA_DISABLE_BACKEND_DISPATCH
 
-python -m qwenpt.train.utils.prepare_data --data "$source_data" \
-    --output "$prepared_dir" --seed 20261020 --val-ratio 0.1 --reuse-existing
 mkdir -p -- "$output_dir"
 export VERL_FILE_LOGGER_PATH="$output_dir/metrics.jsonl"
 export WANDB_DIR="${WANDB_DIR:-$output_dir}"
@@ -69,41 +58,60 @@ export WANDB_MODE="${WANDB_MODE:-online}"
 
 overrides=(
     "model.path=$model_path"
-    "model.use_remove_padding=false"
+    "model.use_remove_padding=true"
     "model.enable_gradient_checkpointing=true"
+    "model.enable_activation_offload=false"
     "model.lora_rank=0"
     "model.use_fused_kernels=false"
-    "+model.override_config.attn_implementation=sdpa"
+    "model.use_liger=false"
+    "+model.override_config.attn_implementation=flash_attention_2"
     "engine.strategy=fsdp2"
     "engine.fsdp_size=$num_gpus"
-    # Keep FP32 parameters and Adam states on CPU; FSDP2 computes in BF16.
+    # Keep the established FP32 parameter/Adam precision with BF16 computation.
     "engine.model_dtype=float32"
-    "engine.offload_policy=true"
+    "engine.dtype=bfloat16"
+    "engine.offload_policy=false"
+    "engine.param_offload=false"
+    "engine.optimizer_offload=false"
+    "engine.ulysses_sequence_parallel_size=1"
     "engine.use_torch_compile=false"
+    "engine.use_no_sync_for_gradient_accumulation=false"
+    "engine.seed=$seed"
+    "+engine.mixed_precision={param_dtype:bf16,reduce_dtype:fp32,buffer_dtype:fp32}"
     "data.train_files=$train_file"
     "data.val_files=$val_file"
+    "data.train_max_samples=-1"
+    "data.val_max_samples=-1"
     "data.custom_cls.path=pkg://qwenpt.train.verl.dataset"
     "data.custom_cls.name=QwenSFTDataset"
     "data.enable_thinking_default=true"
     "+data.loss_scope=all_assistant"
     "+data.apply_chat_template_kwargs.preserve_thinking=true"
     "data.pad_mode=no_padding"
-    "data.max_length=8192"
+    "data.max_length=262144"
     "data.truncation=error"
-    "data.train_batch_size=8"
+    "data.train_batch_size=96"
     "data.micro_batch_size_per_gpu=1"
-    "data.use_dynamic_bsz=false"
+    "data.use_dynamic_bsz=true"
+    # Preserve the full longest row; this budget still needs capacity validation for native/no-offload.
+    "data.max_token_len_per_gpu=${QWENPT_SFT_MAX_TOKENS:-231346}"
     "data.num_workers=0"
+    "+data.length_bucketing=true"
+    "+data.length_source=tokenized"
+    "+data.length_bucket_drop_last=false"
+    "+data.length_bucket_pad_tail=true"
+    "+data.full_validation=true"
     "optim.lr=1e-5"
     "optim.lr_scheduler_type=cosine"
     "optim.lr_warmup_steps_ratio=0.1"
+    "optim.override_optimizer_config={foreach:false,fused:false}"
     "trainer.project_name=Qwen3.8-27B-PT"
-    "trainer.experiment_name=sft-math-10k-full-2epoch"
+    "trainer.experiment_name=sft-v2-100k-1epoch"
     "trainer.default_local_dir=$output_dir"
-    "trainer.total_epochs=2"
+    "trainer.total_epochs=1"
     "trainer.total_training_steps=null"
-    "trainer.seed=20261020"
-    "+trainer.cpu_offload_pin_memory=false"
+    "trainer.seed=$seed"
+    "+trainer.progress_tracking=true"
     "trainer.save_freq=after_each_epoch"
     "trainer.test_freq=-1"
     "trainer.max_ckpt_to_keep=2"
@@ -115,6 +123,5 @@ overrides=(
     "hydra.job.chdir=false"
 )
 
-python -m qwenpt.train.utils.wandb_proxy -- \
-    torchrun --standalone --nnodes=1 --nproc-per-node="$num_gpus" \
+exec torchrun --standalone --nnodes=1 --nproc-per-node="$num_gpus" \
     --module qwenpt.train.sft "${overrides[@]}" "$@"

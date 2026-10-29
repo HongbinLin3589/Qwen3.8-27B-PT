@@ -53,11 +53,17 @@ class QwenSFTDataset(Dataset):
         self.rows = []
         for path in paths:
             # Read each file independently: directory partition names are not data columns.
-            self.rows.extend(pq.ParquetFile(path).read().to_pylist())
+            # Large nested columns can exceed Arrow's array limits in a whole-file read.
+            for batch in pq.ParquetFile(path).iter_batches(batch_size=1024):
+                self.rows.extend(batch.to_pylist())
         if max_samples > 0:
             self.rows = self.rows[:max_samples]
         if not self.rows:
             raise ValueError("The SFT dataset is empty")
+        self.token_lengths = (
+            [int(row["tokenized_length"]) for row in self.rows]
+            if all(row.get("tokenized_length") is not None for row in self.rows) else None
+        )
 
     def __len__(self) -> int:
         """Return the number of rows after the optional sample limit."""
@@ -70,6 +76,8 @@ class QwenSFTDataset(Dataset):
                 self.rows[index], self.tokenizer, self.processor, self.loss_scope, self.enable_thinking_default
             )
             length = len(inputs["input_ids"])
+            if self.token_lengths is not None and length != self.token_lengths[index]:
+                raise ValueError("Cached tokenized_length differs from the current tokenizer/template")
             if length > self.max_length:
                 raise ValueError(f"Sequence length {length} exceeds max_length={self.max_length}")
             position_ids = self.position_ids(inputs)

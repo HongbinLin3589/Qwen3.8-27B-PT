@@ -1,1 +1,1 @@
-"""Training module: SFT and offline RL (RFT, APEX) on top of the chosen training framework."""
+"""SFT and offline BOLT training with shared data and runtime support."""

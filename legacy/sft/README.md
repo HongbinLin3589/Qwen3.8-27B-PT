@@ -25,7 +25,7 @@ CUDA_VISIBLE_DEVICES='' python -m pytest legacy/sft/tests
 旧 Slurm 启动脚本通过 `python -m legacy.sft.utils.wandb_proxy -- <command...>` 管理 W&B 专用 SSH 隧道与训练子进程。
 该包装器及其测试均位于本归档目录，正式包不保留旧 `qwenpt.train.utils.wandb_proxy` 路径的兼容 stub。
 `monitor_sft` 保留固定两 rank、2250 步等旧协议，不能作为当前全量训练监控器。
-正式数据准备与进度审计继续使用 `qwenpt.train.utils.prepare_sft_data` 和 `qwenpt.train.utils.sft_progress`。
+正式数据准备与进度审计继续使用 `qwenpt.train.sft.prepare_data` 和 `qwenpt.train.sft.progress`。
 更多工具说明见 [utils/README.md](utils/README.md)。
 
 `outputs/` 中历史源码、哈希、PASS/FAIL 和冻结 driver 不在本次迁移中改写。

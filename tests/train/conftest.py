@@ -6,6 +6,8 @@ import pytest
 from tokenizers import ByteLevelBPETokenizer
 from transformers import PreTrainedTokenizerFast
 
+from tests.train.common.synthetic_data import write_synthetic_data
+
 
 @pytest.fixture(scope="session")
 def tokenizer() -> PreTrainedTokenizerFast:
@@ -20,5 +22,11 @@ def tokenizer() -> PreTrainedTokenizerFast:
     )
     return PreTrainedTokenizerFast(
         tokenizer_object=backend._tokenizer, pad_token=special[0], eos_token="<|im_end|>",
-        chat_template=(Path(__file__).parent / "fixtures/chat_template.jinja").read_text(),
+        chat_template=(Path(__file__).parent / "common/fixtures/chat_template.jinja").read_text(),
     )
+
+
+@pytest.fixture
+def sample_paths(tmp_path: Path) -> dict[str, str]:
+    """Create small Parquet fixtures for dataset tests."""
+    return write_synthetic_data(tmp_path / "data")

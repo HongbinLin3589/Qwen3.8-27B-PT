@@ -1,1 +1,1 @@
-"""Utilities for inspecting training inputs and debugging SFT."""
+"""Compatibility imports and CLIs; implementations live in common, sft, and bolt."""

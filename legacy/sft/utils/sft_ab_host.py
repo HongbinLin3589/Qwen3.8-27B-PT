@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 
-from qwenpt.train.utils.numa import _allowed_memory_nodes, _local_cpus, _visible_gpu_pci_ids
+from qwenpt.train.common.numa import _allowed_memory_nodes, _local_cpus, _visible_gpu_pci_ids
 
 
 def _node_meminfo(path: Path) -> dict:

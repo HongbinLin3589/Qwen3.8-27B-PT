@@ -44,7 +44,7 @@ python -m legacy.sft.utils.sft_ab_host --output "$output/host_plan.json"
 optimized_cpus="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["optimized_cpu_list"])' "$output/host_plan.json")"
 for local_rank in 0 1; do
     LOCAL_RANK="$local_rank" LOCAL_WORLD_SIZE=2 taskset -c "$optimized_cpus" \
-        python -c 'import sys; from qwenpt.train.utils.numa import bind_to_local_gpu; bind_to_local_gpu(receipt_dir=sys.argv[1])' \
+        python -c 'import sys; from qwenpt.train.common.numa import bind_to_local_gpu; bind_to_local_gpu(receipt_dir=sys.argv[1])' \
         "$output/binding_probe"
 done
 python -m legacy.sft.utils.benchmark_ce --output "$output/ce_gpu_validation.json" \

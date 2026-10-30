@@ -64,7 +64,7 @@ case "$mode" in
         export VLLM_CACHE_ROOT="${SLURM_TMPDIR:-/tmp}/qwenpt-vllm-${SLURM_JOB_ID:-$$}"
         mkdir -p "$VLLM_CACHE_ROOT"
         printf 'VLLM_CACHE_ROOT=%s\n' "$VLLM_CACHE_ROOT"
-        "$rollout_python" -m qwenpt.train.utils.bolt_rollout generate \
+        "$rollout_python" -m qwenpt.train.bolt.rollout generate \
             --data "$source_data" --model "$model_path" --output "$shard_dir" \
             --finalize-output "$run_dir" \
             --shard-id "$shard_id" --num-shards "$num_shards" \
@@ -74,14 +74,14 @@ case "$mode" in
             --seed 20261020 "$@"
         ;;
     finalize)
-        "$rollout_python" -m qwenpt.train.utils.bolt_rollout finalize \
+        "$rollout_python" -m qwenpt.train.bolt.rollout finalize \
             --data "$source_data" --shards "$shard_dir"/shard_*.jsonl --output "$run_dir" \
             --num-candidates 8 --seed 20261020 --val-ratio 0.1 --reuse-existing "$@"
-        "$project_root/.venv/bin/python" -m qwenpt.train.utils.bolt_verify \
+        "$project_root/.venv/bin/python" -m qwenpt.train.bolt.verify \
             --output "$run_dir" --tokenizer "$model_path" --max-length 12288
         ;;
     finalize-family)
-        "$rollout_python" -m qwenpt.train.utils.bolt_recovery \
+        "$rollout_python" -m qwenpt.train.bolt.recovery \
             --data "$source_data" --output "$run_dir" --reuse-existing "$@"
         ;;
     *)

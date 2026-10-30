@@ -60,7 +60,7 @@ export PATH="$CUDA_HOME/bin:/data/apps/gcc/12.5/bin:$PATH"
 export FLA_TILELANG=1
 unset FLA_CI_ENV FLA_DISABLE_BACKEND_DISPATCH
 
-python -m qwenpt.train.utils.prepare_data --data "$source_data" \
+python -m qwenpt.train.sft.split_data --data "$source_data" \
     --output "$prepared_dir" --seed 20261020 --val-ratio 0.1 --reuse-existing
 mkdir -p -- "$output_dir"
 export VERL_FILE_LOGGER_PATH="$output_dir/metrics.jsonl"
@@ -82,7 +82,7 @@ overrides=(
     "engine.use_torch_compile=false"
     "data.train_files=$train_file"
     "data.val_files=$val_file"
-    "data.custom_cls.path=pkg://qwenpt.train.verl.dataset"
+    "data.custom_cls.path=pkg://qwenpt.train.common.dataset"
     "data.custom_cls.name=QwenSFTDataset"
     "data.enable_thinking_default=true"
     "+data.loss_scope=all_assistant"

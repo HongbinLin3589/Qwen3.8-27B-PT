@@ -157,7 +157,7 @@ def build_arms(config: SweepConfig, pool_rows: int) -> list[dict]:
             "data.train_files": [str(path.resolve()) for path in config.train_files],
             # Native SFT always validates and saves at its final step, even with frequencies -1.
             "data.val_files": None,
-            "data.custom_cls.path": "pkg://qwenpt.train.verl.dataset",
+            "data.custom_cls.path": "pkg://qwenpt.train.common.dataset",
             "data.custom_cls.name": "QwenSFTDataset",
             "data.enable_thinking_default": True,
             "+data.loss_scope": "all_assistant",

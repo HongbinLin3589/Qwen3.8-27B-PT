@@ -151,7 +151,7 @@ def run_sft(config: DictConfig) -> None:
             if self.val_dataloader is not None:
                 self.val_sampler.seed = seed
             if config.data.get("length_bucketing", False):
-                from qwenpt.train.verl.sampler import build_length_bucket_dataloader
+                from qwenpt.train.sft.sampler import build_length_bucket_dataloader
 
                 self.train_sampler, self.train_dataloader = build_length_bucket_dataloader(
                     self.train_dataset, config.data, collate_fn=self.collate_fn,
@@ -162,7 +162,7 @@ def run_sft(config: DictConfig) -> None:
             elif track_progress:
                 raise ValueError("Production progress tracking requires length_bucketing")
             if config.data.get("full_validation", False) and self.val_dataset is not None:
-                from qwenpt.train.verl.sampler import build_full_validation_dataloader
+                from qwenpt.train.sft.sampler import build_full_validation_dataloader
 
                 self.val_sampler, self.val_dataloader = build_full_validation_dataloader(
                     self.val_dataset, config.data, collate_fn=self.collate_fn,
@@ -207,7 +207,7 @@ def run_sft(config: DictConfig) -> None:
                 trainer = SeededSFTTrainer(config=config)
             _configure_checkpoint_reentrancy(config, getattr(trainer.engine, "module", None))
             if track_progress:
-                from qwenpt.train.utils.sft_progress import SFTProgressRecorder
+                from qwenpt.train.sft.progress import SFTProgressRecorder
 
                 progress = SFTProgressRecorder(trainer)
             prefetch_modules = _configure_fsdp2_backward_prefetch(config, getattr(trainer.engine, "module", None))
@@ -277,7 +277,7 @@ def run_sft(config: DictConfig) -> None:
 def main(config: DictConfig) -> None:
     """Run native verl SFT using the composed CLI configuration."""
     if config.get("trainer", {}).get("numa_binding", False):
-        from qwenpt.train.utils.numa import bind_to_local_gpu
+        from qwenpt.train.common.numa import bind_to_local_gpu
 
         # Bind before model/optimizer first-touch allocations, including existing helper threads.
         bind_to_local_gpu(receipt_dir=Path(config.trainer.default_local_dir) / "numa_binding")

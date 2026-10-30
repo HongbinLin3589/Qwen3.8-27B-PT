@@ -5,6 +5,7 @@ __pycache__/
 
 # Virtual environments
 .venv/
+.python/
 venv/
 env/
 ENV/
@@ -41,26 +42,24 @@ coverage.xml
 .python-version
 uv.lock
 
-# tests
-tests/train/**
-
 # (Junbin)
-/docs/*
-!/docs/data/
+/docs/train/
+/docs/feishu/
+/docs/code_structure.md
+/docs/server_request_20261025.md
+/docs/slurm_compute_node.md
+/outputs/
+/data/
 AGENTS.md
+CLAUDE.md
 
 # Generated data-pipeline outputs; curated datasets remain versioned.
-/data/pipeline/
 /runs/
 /export/
-/examples/data/sample/
+/examples/
 
 # Generated SFT inputs, checkpoints and cluster logs.
-/data/processed/
 /checkpoints/
 /slurm_log/
 /sft_*.out
 /sft_*.err
-
-outputs/
-data/

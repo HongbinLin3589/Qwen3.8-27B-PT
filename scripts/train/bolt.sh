@@ -79,7 +79,7 @@ overrides=(
     'engine.seed=${trainer.seed}'
     "data.train_files=$train_file"
     "data.val_files=$val_file"
-    "data.custom_cls.path=pkg://qwenpt.train.verl.bolt_dataset"
+    "data.custom_cls.path=pkg://qwenpt.train.bolt.dataset"
     "data.custom_cls.name=QwenBOLTDataset"
     "+data.bolt_beta=0.1"
     "data.enable_thinking_default=true"
@@ -111,6 +111,5 @@ overrides=(
     "hydra.job.chdir=false"
 )
 
-python -m qwenpt.train.utils.wandb_proxy -- \
-    torchrun --standalone --nnodes=1 --nproc-per-node="$num_gpus" \
+exec torchrun --standalone --nnodes=1 --nproc-per-node="$num_gpus" \
     --module qwenpt.train.bolt "${overrides[@]}" "$@"
